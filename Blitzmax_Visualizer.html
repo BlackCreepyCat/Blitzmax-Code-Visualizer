@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v8.9</title>
+    <title>BlitzMax NG - Code Visualizer v9.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -1689,11 +1689,6 @@
 
         // Calculate the best anchor points based on relative node positions
         function calculateDynamicAnchors(fromNode, toNode, connType) {
-            // For 'contains' connections (Type → Method), keep right → left
-            if (connType === 'contains') {
-                return { from: 'right', to: 'left' };
-            }
-            
             // Calculate centers of both nodes
             const fromCenterX = fromNode.x + fromNode.width / 2;
             const fromCenterY = fromNode.y + fromNode.height / 2;
@@ -2365,7 +2360,7 @@
         });
 
         document.getElementById('btnExport').addEventListener('click', () => {
-            const data = { nodes: state.nodes, connections: state.connections, version: '8.9' };
+            const data = { nodes: state.nodes, connections: state.connections, version: '9.0' };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
