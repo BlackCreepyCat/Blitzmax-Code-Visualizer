@@ -300,6 +300,47 @@
             return null;
         }
         
+        // Parse multiple variable declarations on one line: Global a%,b%,c%=10
+        function parseMultipleVarDeclarations(declString) {
+            const results = [];
+            
+            // Check if there are commas (multiple declarations)
+            if (!declString.includes(',')) {
+                const parsed = parseVarDeclaration(declString);
+                if (parsed) results.push(parsed);
+                return results;
+            }
+            
+            // Split by comma, but be careful with values that contain commas
+            const parts = [];
+            let current = '';
+            let depth = 0;
+            
+            for (let i = 0; i < declString.length; i++) {
+                const char = declString[i];
+                if (char === '(' || char === '[') depth++;
+                else if (char === ')' || char === ']') depth--;
+                
+                if (char === ',' && depth === 0) {
+                    parts.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            if (current.trim()) parts.push(current.trim());
+            
+            // Parse each part
+            for (const part of parts) {
+                const parsed = parseVarDeclaration(part);
+                if (parsed) {
+                    results.push(parsed);
+                }
+            }
+            
+            return results;
+        }
+        
         function parseBlitzMaxCode(code) {
             const result = { types: [], functions: [], globals: [], consts: [], mainCode: [] };
             const lines = code.split('\n');
@@ -354,45 +395,28 @@
                     // Fields
                     const fieldMatch = codeOnly.match(/^Field\s+(.+)/i);
                     if (fieldMatch) {
-                        const fieldsPart = fieldMatch[1];
-                        if (fieldsPart.includes(',')) {
-                            const parts = fieldsPart.split(',').map(p => p.trim());
-                            const firstHasType = parts[0].includes(':');
-                            if (firstHasType) {
-                                parts.forEach(part => {
-                                    const parsed = parseVarDeclaration(part);
-                                    if (parsed) currentType.fields.push({ name: parsed.name, type: parsed.type, raw: `Field ${part}` });
-                                });
-                            } else {
-                                const lastPart = parts[parts.length - 1];
-                                const typeM = lastPart.match(/(\w+)\s*:\s*(\w+)/);
-                                if (typeM) {
-                                    const sharedType = typeM[2];
-                                    currentType.fields.push({ name: typeM[1], type: sharedType, raw: `Field ${typeM[1]}:${sharedType}` });
-                                    for (let pi = 0; pi < parts.length - 1; pi++) {
-                                        const name = parts[pi].trim();
-                                        if (name) currentType.fields.push({ name, type: sharedType, raw: `Field ${name}:${sharedType}` });
-                                    }
-                                }
-                            }
-                        } else {
-                            const parsed = parseVarDeclaration(fieldsPart);
-                            if (parsed) currentType.fields.push({ name: parsed.name, type: parsed.type, raw: codeOnly });
-                        }
+                        const parsedVars = parseMultipleVarDeclarations(fieldMatch[1]);
+                        parsedVars.forEach(parsed => {
+                            currentType.fields.push({ name: parsed.name, type: parsed.type, raw: `Field ${parsed.raw}` });
+                        });
                         continue;
                     }
 
                     // Const/Global in Type
                     const constMatch = codeOnly.match(/^Const\s+(.+)/i);
                     if (constMatch) {
-                        const parsed = parseVarDeclaration(constMatch[1]);
-                        if (parsed) currentType.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                        const parsedVars = parseMultipleVarDeclarations(constMatch[1]);
+                        parsedVars.forEach(parsed => {
+                            currentType.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: `Const ${parsed.raw}` });
+                        });
                         continue;
                     }
                     const globalMatch = codeOnly.match(/^Global\s+(.+)/i);
                     if (globalMatch) {
-                        const parsed = parseVarDeclaration(globalMatch[1]);
-                        if (parsed) currentType.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                        const parsedVars = parseMultipleVarDeclarations(globalMatch[1]);
+                        parsedVars.forEach(parsed => {
+                            currentType.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: `Global ${parsed.raw}` });
+                        });
                         continue;
                     }
 
@@ -463,16 +487,20 @@
                 // Global variables
                 const globalVarMatch = codeOnly.match(/^Global\s+(.+)/i);
                 if (globalVarMatch && !currentType && !currentFunction) {
-                    const parsed = parseVarDeclaration(globalVarMatch[1]);
-                    if (parsed) result.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                    const parsedVars = parseMultipleVarDeclarations(globalVarMatch[1]);
+                    parsedVars.forEach(parsed => {
+                        result.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: `Global ${parsed.raw}` });
+                    });
                     continue;
                 }
 
                 // Const
                 const constVarMatch = codeOnly.match(/^Const\s+(.+)/i);
                 if (constVarMatch && !currentType && !currentFunction) {
-                    const parsed = parseVarDeclaration(constVarMatch[1]);
-                    if (parsed) result.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                    const parsedVars = parseMultipleVarDeclarations(constVarMatch[1]);
+                    parsedVars.forEach(parsed => {
+                        result.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: `Const ${parsed.raw}` });
+                    });
                     continue;
                 }
 
