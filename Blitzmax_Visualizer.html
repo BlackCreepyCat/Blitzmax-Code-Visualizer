@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v8.6</title>
+    <title>BlitzMax NG - Code Visualizer v8.9</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -337,7 +337,11 @@
             <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Method</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #22cc88;"></div><span>Function (static)</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #66ff66;"></div><span>Function</span></div>
-            <div class="legend-item"><div class="legend-color" style="background: #ff9933;"></div><span>Globals</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #ff9933;"></div><span>Variables</span></div>
+            <div style="color: var(--cyan); font-weight: bold; margin: 10px 0 8px 0;">VARIABLES</div>
+            <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Const</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #ff9933;"></div><span>Global</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #66ff66;"></div><span>Local</span></div>
             <div style="color: var(--cyan); font-weight: bold; margin: 10px 0 8px 0;">CONNECTIONS</div>
             <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Call</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #ffdd44;"></div><span>Variable</span></div>
@@ -385,7 +389,7 @@
             <div>TYPES: <span class="stats-value" id="typeCount">0</span></div>
             <div>METHODS: <span class="stats-value" id="methodCount">0</span></div>
             <div>FUNCTIONS: <span class="stats-value" id="funcCount">0</span></div>
-            <div>GLOBALS: <span class="stats-value" id="globalCount">0</span></div>
+            <div>VARS: <span class="stats-value" id="globalCount">0</span></div>
             <div>LINKS: <span class="stats-value" id="linkCount">0</span></div>
             <div>ZOOM: <span class="stats-value" id="zoomLevel">100%</span></div>
         </div>
@@ -519,7 +523,7 @@
         }
         
         function parseBlitzMaxCode(code) {
-            const result = { types: [], functions: [], globals: [], consts: [], mainCode: [] };
+            const result = { types: [], functions: [], globals: [], consts: [], locals: [], mainCode: [] };
             const lines = code.split('\n');
             let currentType = null;
             let currentMethod = null;
@@ -570,10 +574,12 @@
                 let codeOnly = trimmed.split("'")[0].trim();
                 if (!codeOnly) continue;
 
-                // Type declaration
-                const typeMatch = codeOnly.match(/^Type\s+(\w+)(?:\s+Extends\s+(\w+))?/i);
+                // Type declaration - handle Abstract and Final modifiers
+                const typeMatch = codeOnly.match(/^Type\s+(\w+)(?:\s+Extends\s+(\w+))?(?:\s+Abstract)?(?:\s+Final)?/i);
                 if (typeMatch) {
-                    currentType = { name: typeMatch[1], extends: typeMatch[2] || null, fields: [], methods: [], consts: [], globals: [] };
+                    const isAbstract = /\bAbstract\b/i.test(codeOnly);
+                    const isFinal = /\bFinal\b/i.test(codeOnly);
+                    currentType = { name: typeMatch[1], extends: typeMatch[2] || null, fields: [], methods: [], consts: [], globals: [], isAbstract: isAbstract, isFinal: isFinal };
                     continue;
                 }
 
@@ -614,16 +620,26 @@
                     }
 
                     // Abstract Method
-                    const abstractMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\([^)]*\)\s*Abstract/i);
-                    if (abstractMatch) {
-                        currentType.methods.push({ name: abstractMatch[1], returnType: abstractMatch[3] || 'Void', params: '', code: ['[Abstract]'], isAbstract: true });
+                    const abstractMethodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\([^)]*\)\s*Abstract/i);
+                    if (abstractMethodMatch) {
+                        currentType.methods.push({ name: abstractMethodMatch[1], returnType: abstractMethodMatch[3] || 'Void', params: '', code: ['[Abstract]'], isAbstract: true });
                         continue;
                     }
 
-                    // Function in Type
+                    // Abstract Function in Type
+                    const abstractFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)\s*Abstract/i);
+                    if (abstractFuncMatch) {
+                        currentType.methods.push({ name: abstractFuncMatch[1], returnType: abstractFuncMatch[3] || (abstractFuncMatch[2] ? suffixToType(abstractFuncMatch[2]) : 'Void'), params: abstractFuncMatch[4] || '', code: ['[Abstract]'], isAbstract: true, isFunction: true });
+                        continue;
+                    }
+
+                    // Function in Type (non-abstract)
                     const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)(?:\s+\w+)?/i);
                     if (typeFuncMatch && !currentMethod) {
-                        currentMethod = { name: typeFuncMatch[1], returnType: typeFuncMatch[3] || (typeFuncMatch[2] ? suffixToType(typeFuncMatch[2]) : 'Void'), params: typeFuncMatch[4] || '', code: [], isFunction: true };
+                        // Make sure it's not abstract (already handled above)
+                        if (!/\bAbstract\b/i.test(codeOnly)) {
+                            currentMethod = { name: typeFuncMatch[1], returnType: typeFuncMatch[3] || (typeFuncMatch[2] ? suffixToType(typeFuncMatch[2]) : 'Void'), params: typeFuncMatch[4] || '', code: [], isFunction: true };
+                        }
                         continue;
                     }
 
@@ -702,6 +718,18 @@
                 if (!currentType && !currentFunction) {
                     const upper = codeOnly.toUpperCase();
                     if (upper.startsWith('FRAMEWORK ') || upper.startsWith('IMPORT ') || upper.startsWith('INCLUDE ') || upper.startsWith('STRICT') || upper.startsWith('SUPERSTRICT')) continue;
+                    
+                    // Parse Local variables in main
+                    const localVarMatch = codeOnly.match(/^Local\s+(.+)/i);
+                    if (localVarMatch) {
+                        const parsedVars = parseMultipleVarDeclarations(localVarMatch[1]);
+                        parsedVars.forEach(parsed => {
+                            result.locals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: `Local ${parsed.raw}` });
+                        });
+                        // Don't add to mainCode since it's now in locals
+                        continue;
+                    }
+                    
                     result.mainCode.push(codeOnly);
                 }
             }
@@ -756,15 +784,27 @@
                 rowMaxH = Math.max(rowMaxH, h);
             }
 
-            if (parsed.globals.length > 0 || parsed.consts.length > 0) {
-                const lines = [...parsed.consts.map(c => c.raw), ...parsed.globals.map(g => g.raw)];
+            if (parsed.globals.length > 0 || parsed.consts.length > 0 || parsed.locals.length > 0) {
+                const lines = [
+                    ...parsed.consts.map(c => c.raw), 
+                    ...parsed.globals.map(g => g.raw),
+                    ...parsed.locals.map(l => l.raw)
+                ];
                 const content = lines.join('\n');
-                const w = calculateNodeWidth('🌐 GLOBALS', content, 280);
+                const w = calculateNodeWidth('🌐 VARIABLES', content, 280);
                 const h = state.TITLE_BAR_HEIGHT + Math.max(lines.length * state.LINE_HEIGHT + 20, 60);
-                const globalsNode = { id: state.nextNodeId++, x: rowX, y: currentY, width: w, height: h, label: '🌐 GLOBALS & CONST', content, nodeType: 'global', color: state.colors.global, data: { globals: parsed.globals, consts: parsed.consts } };
+                const globalsNode = { 
+                    id: state.nextNodeId++, x: rowX, y: currentY, width: w, height: h, 
+                    label: '🌐 CONST / GLOBAL / LOCAL', 
+                    content, 
+                    nodeType: 'global', 
+                    color: state.colors.global, 
+                    data: { globals: parsed.globals, consts: parsed.consts, locals: parsed.locals } 
+                };
                 state.nodes.push(globalsNode);
                 parsed.globals.forEach(g => nodeMap[g.name] = globalsNode);
                 parsed.consts.forEach(c => nodeMap[c.name] = globalsNode);
+                parsed.locals.forEach(l => nodeMap[l.name] = globalsNode);
                 rowMaxH = Math.max(rowMaxH, h);
             }
 
@@ -780,7 +820,10 @@
                 const typeW = calculateNodeWidth(type.name, typeContent, 250);
                 const typeH = state.TITLE_BAR_HEIGHT + Math.max(allLines.length * state.LINE_HEIGHT + 20, 80);
 
-                const typeNode = { id: state.nextNodeId++, x: 80, y: currentY, width: typeW, height: typeH, label: '📦 Type ' + type.name + (type.extends ? ` ◀ ${type.extends}` : ''), content: typeContent, nodeType: 'type', color: state.colors.type, data: type };
+                const abstractLabel = type.isAbstract ? ' [Abstract]' : '';
+                const finalLabel = type.isFinal ? ' [Final]' : '';
+                const extendsLabel = type.extends ? ` ◀ ${type.extends}` : '';
+                const typeNode = { id: state.nextNodeId++, x: 80, y: currentY, width: typeW, height: typeH, label: '📦 Type ' + type.name + extendsLabel + abstractLabel + finalLabel, content: typeContent, nodeType: 'type', color: state.colors.type, data: type };
                 state.nodes.push(typeNode);
                 nodeMap[type.name] = typeNode;
 
@@ -868,6 +911,7 @@
             state.nodes.filter(n => n.nodeType === 'global').forEach(gn => {
                 if (gn.data.globals) gn.data.globals.forEach(g => globalNames.push(g.name.toLowerCase()));
                 if (gn.data.consts) gn.data.consts.forEach(c => globalNames.push(c.name.toLowerCase()));
+                if (gn.data.locals) gn.data.locals.forEach(l => globalNames.push(l.name.toLowerCase()));
             });
             const globalsNode = state.nodes.find(n => n.nodeType === 'global');
 
@@ -1643,6 +1687,97 @@
             return { top: { x: n.x + n.width / 2, y: n.y }, bottom: { x: n.x + n.width / 2, y: n.y + n.height }, left: { x: n.x, y: n.y + n.height / 2 }, right: { x: n.x + n.width, y: n.y + n.height / 2 } };
         }
 
+        // Calculate the best anchor points based on relative node positions
+        function calculateDynamicAnchors(fromNode, toNode, connType) {
+            // For 'contains' connections (Type → Method), keep right → left
+            if (connType === 'contains') {
+                return { from: 'right', to: 'left' };
+            }
+            
+            // Calculate centers of both nodes
+            const fromCenterX = fromNode.x + fromNode.width / 2;
+            const fromCenterY = fromNode.y + fromNode.height / 2;
+            const toCenterX = toNode.x + toNode.width / 2;
+            const toCenterY = toNode.y + toNode.height / 2;
+            
+            // Calculate relative position
+            const dx = toCenterX - fromCenterX;
+            const dy = toCenterY - fromCenterY;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            
+            // Determine primary direction (horizontal or vertical)
+            // Add some bias based on node dimensions to avoid awkward exits
+            const horizontalBias = (fromNode.width + toNode.width) / 4;
+            const verticalBias = (fromNode.height + toNode.height) / 4;
+            
+            let fromAnchor, toAnchor;
+            
+            if (absDx > absDy + verticalBias) {
+                // Primarily horizontal
+                if (dx > 0) {
+                    // Target is to the right
+                    fromAnchor = 'right';
+                    toAnchor = 'left';
+                } else {
+                    // Target is to the left
+                    fromAnchor = 'left';
+                    toAnchor = 'right';
+                }
+            } else if (absDy > absDx + horizontalBias) {
+                // Primarily vertical
+                if (dy > 0) {
+                    // Target is below
+                    fromAnchor = 'bottom';
+                    toAnchor = 'top';
+                } else {
+                    // Target is above
+                    fromAnchor = 'top';
+                    toAnchor = 'bottom';
+                }
+            } else {
+                // Diagonal - choose based on which axis has more room
+                // Check if nodes overlap on an axis
+                const overlapX = !(fromNode.x + fromNode.width < toNode.x || toNode.x + toNode.width < fromNode.x);
+                const overlapY = !(fromNode.y + fromNode.height < toNode.y || toNode.y + toNode.height < fromNode.y);
+                
+                if (overlapY && !overlapX) {
+                    // Horizontally separated, vertically overlapping
+                    fromAnchor = dx > 0 ? 'right' : 'left';
+                    toAnchor = dx > 0 ? 'left' : 'right';
+                } else if (overlapX && !overlapY) {
+                    // Vertically separated, horizontally overlapping
+                    fromAnchor = dy > 0 ? 'bottom' : 'top';
+                    toAnchor = dy > 0 ? 'top' : 'bottom';
+                } else {
+                    // True diagonal - prefer the longer axis for smoother curves
+                    if (absDx >= absDy) {
+                        fromAnchor = dx > 0 ? 'right' : 'left';
+                        toAnchor = dx > 0 ? 'left' : 'right';
+                    } else {
+                        fromAnchor = dy > 0 ? 'bottom' : 'top';
+                        toAnchor = dy > 0 ? 'top' : 'bottom';
+                    }
+                }
+            }
+            
+            // Special case for 'extends' - prefer vertical (inheritance is usually shown vertically)
+            if (connType === 'extends') {
+                if (dy < 0) {
+                    // Parent is above
+                    fromAnchor = 'top';
+                    toAnchor = 'bottom';
+                } else if (dy > 0) {
+                    // Parent is below (unusual but handle it)
+                    fromAnchor = 'bottom';
+                    toAnchor = 'top';
+                }
+                // If same level, keep horizontal anchors
+            }
+            
+            return { from: fromAnchor, to: toAnchor };
+        }
+
         // ============================================
         // RENDERING
         // ============================================
@@ -1674,18 +1809,29 @@
             const toN = state.nodes.find(n => n.id === conn.to);
             if (!fromN || !toN) return;
 
-            const fromA = getNodeAnchors(fromN)[conn.fromAnchor];
-            const toA = getNodeAnchors(toN)[conn.toAnchor];
+            // Calculate dynamic anchors based on relative positions
+            const anchors = calculateDynamicAnchors(fromN, toN, conn.type);
+            
+            const fromA = getNodeAnchors(fromN)[anchors.from];
+            const toA = getNodeAnchors(toN)[anchors.to];
             const from = worldToScreen(fromA.x, fromA.y);
             const to = worldToScreen(toA.x, toA.y);
 
+            // Adaptive curve strength based on distance and direction
             const dist = Math.sqrt((to.x-from.x)**2 + (to.y-from.y)**2);
-            const curve = Math.min(dist * 0.4, 100);
+            const curve = Math.min(dist * 0.35, 120);
+            
             const getCP = (pos, anchor, s) => {
-                switch(anchor) { case 'top': return {x:pos.x,y:pos.y-s}; case 'bottom': return {x:pos.x,y:pos.y+s}; case 'left': return {x:pos.x-s,y:pos.y}; case 'right': return {x:pos.x+s,y:pos.y}; default: return pos; }
+                switch(anchor) { 
+                    case 'top': return {x:pos.x, y:pos.y-s}; 
+                    case 'bottom': return {x:pos.x, y:pos.y+s}; 
+                    case 'left': return {x:pos.x-s, y:pos.y}; 
+                    case 'right': return {x:pos.x+s, y:pos.y}; 
+                    default: return pos; 
+                }
             };
-            const cp1 = getCP(from, conn.fromAnchor, curve);
-            const cp2 = getCP(to, conn.toAnchor, curve);
+            const cp1 = getCP(from, anchors.from, curve);
+            const cp2 = getCP(to, anchors.to, curve);
 
             const isContains = conn.type === 'contains';
             const isCalls = conn.type === 'calls';
@@ -1907,7 +2053,20 @@
                 const contentMaxW = w - 16;
 
                 lines.slice(0, maxLines).forEach((line, i) => {
-                    ctx.fillStyle = line.match(/^(Field|Const|Global)\s/i) ? '#b366ff' : line.match(/^(Local|Return|If|For|While|Select)\b/i) ? '#ff9933' : '#ccc';
+                    // Different colors for different variable types
+                    if (line.match(/^Const\s/i)) {
+                        ctx.fillStyle = '#00d4ff'; // Cyan for Const
+                    } else if (line.match(/^Global\s/i)) {
+                        ctx.fillStyle = '#ff9933'; // Orange for Global
+                    } else if (line.match(/^Local\s/i)) {
+                        ctx.fillStyle = '#66ff66'; // Green for Local
+                    } else if (line.match(/^Field\s/i)) {
+                        ctx.fillStyle = '#b366ff'; // Purple for Field
+                    } else if (line.match(/^(Return|If|For|While|Select|Repeat)\b/i)) {
+                        ctx.fillStyle = '#ff9933'; // Orange for control flow
+                    } else {
+                        ctx.fillStyle = '#ccc'; // Default gray
+                    }
                     let displayLine = line;
                     while (ctx.measureText(displayLine).width > contentMaxW && displayLine.length > 3) displayLine = displayLine.slice(0, -1);
                     if (displayLine !== line) displayLine += '…';
@@ -2206,7 +2365,7 @@
         });
 
         document.getElementById('btnExport').addEventListener('click', () => {
-            const data = { nodes: state.nodes, connections: state.connections, version: '8.6' };
+            const data = { nodes: state.nodes, connections: state.connections, version: '8.9' };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
