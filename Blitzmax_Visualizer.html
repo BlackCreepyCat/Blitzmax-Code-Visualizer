@@ -314,7 +314,7 @@
                 const trimmed = line.trim();
                 const upperTrimmed = trimmed.toUpperCase();
 
-                if (upperTrimmed.startsWith('REM')) { inRemBlock = true; continue; }
+                if (upperTrimmed === 'REM' || upperTrimmed.startsWith('REM ')) { inRemBlock = true; continue; }
                 if (upperTrimmed === 'END REM' || upperTrimmed === 'ENDREM') { inRemBlock = false; continue; }
                 if (inRemBlock) continue;
                 
@@ -397,21 +397,21 @@
                     }
 
                     // Abstract Method
-                    const abstractMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\([^)]*\)\s*Abstract/i);
+                    const abstractMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))\?\s*\([^)]*\)\s*Abstract/i);
                     if (abstractMatch) {
                         currentType.methods.push({ name: abstractMatch[1], returnType: abstractMatch[3] || 'Void', params: '', code: ['[Abstract]'], isAbstract: true });
                         continue;
                     }
 
                     // Function in Type
-                    const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)/i);
+                    const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))\?\s*\(([^)]*)\)/i);
                     if (typeFuncMatch && !currentMethod) {
                         currentMethod = { name: typeFuncMatch[1], returnType: typeFuncMatch[3] || (typeFuncMatch[2] ? suffixToType(typeFuncMatch[2]) : 'Void'), params: typeFuncMatch[4] || '', code: [], isFunction: true };
                         continue;
                     }
 
                     // Method
-                    const methodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)?/i);
+                    const methodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))\?\s*\(([^)]*)\)?/i);
                     if (methodMatch && !currentMethod) {
                         currentMethod = { name: methodMatch[1], returnType: methodMatch[3] || (methodMatch[2] ? suffixToType(methodMatch[2]) : 'Void'), params: methodMatch[4] || '', code: [] };
                         continue;
@@ -426,9 +426,9 @@
                     if (currentMethod) { currentMethod.code.push(line); continue; }
                 }
 
-                // Global Function - handle complex return types like :Gui_NodalNet
+                // Global Function - handle complex return types like :Gui_NodalNet and arrays like :String[]
                 // Also support nested functions (functions inside functions)
-                const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)/i);
+                const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))\?\s*\(([^)]*)\)/i);
                 if (funcMatch && !currentType && !currentFunction) {
                     // Starting a new top-level function
                     currentFunction = { name: funcMatch[1], returnType: funcMatch[3] || (funcMatch[2] ? suffixToType(funcMatch[2]) : 'Void'), params: funcMatch[4] || '', code: [], depth: 0 };
