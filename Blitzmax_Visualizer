@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlitzMax NG - Code Visualizer v8</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-panel: #1a1a24;
+            --cyan: #00d4ff;
+            --purple: #b366ff;
+            --green: #66ff66;
+            --orange: #ff9933;
+        }
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: var(--bg-dark);
+            color: #ccc;
+            overflow: hidden;
+        }
+        #app { width: 100vw; height: 100vh; position: relative; }
+        #canvas { display: block; position: absolute; top: 0; left: 0; }
+        
+        .header {
+            position: absolute; top: 15px; left: 20px; z-index: 100;
+            font-size: 22px; font-weight: bold; letter-spacing: 3px;
+            text-shadow: 0 0 20px var(--cyan);
+            color: var(--cyan);
+        }
+        .header span { color: var(--purple); }
+
+        .toolbar {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            background: rgba(26, 26, 36, 0.95);
+            border: 2px solid var(--cyan); border-radius: 8px;
+            padding: 10px 15px; display: flex; gap: 10px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
+            z-index: 100;
+        }
+        .btn {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--cyan); color: var(--cyan);
+            padding: 8px 14px; border-radius: 4px; cursor: pointer;
+            font-family: 'Consolas', monospace; font-size: 11px;
+            transition: all 0.2s ease; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .btn:hover {
+            background: rgba(0, 212, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+            transform: translateY(-2px);
+        }
+        .btn.active { background: rgba(0, 212, 255, 0.4); }
+        .btn.delete { border-color: #ff4444; color: #ff4444; }
+        .btn.delete:hover { background: rgba(255, 68, 68, 0.3); }
+        .divider { width: 1px; background: rgba(0, 212, 255, 0.3); margin: 0 5px; }
+
+        .code-panel {
+            position: absolute; top: 70px; left: 20px; width: 400px;
+            max-height: calc(100vh - 100px);
+            background: rgba(26, 26, 36, 0.98);
+            border: 2px solid var(--cyan); border-radius: 8px;
+            z-index: 100; display: flex; flex-direction: column;
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.2);
+        }
+        .code-panel.collapsed { width: auto; max-height: none; }
+        .code-panel.collapsed .code-content { display: none; }
+        .code-header {
+            padding: 10px 15px; background: rgba(0, 212, 255, 0.1);
+            border-bottom: 1px solid var(--cyan);
+            display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+        }
+        .code-header h3 { font-size: 12px; color: var(--cyan); letter-spacing: 2px; }
+        .code-content { padding: 10px; flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+        #codeInput {
+            width: 100%; height: 300px;
+            background: #0d0d12; border: 1px solid #444; color: #ccc;
+            padding: 10px; font-family: 'Consolas', monospace; font-size: 12px;
+            resize: vertical; border-radius: 4px; line-height: 1.5;
+        }
+        #codeInput:focus { outline: none; border-color: var(--cyan); }
+        .parse-btn {
+            margin-top: 10px; width: 100%; padding: 12px;
+            background: linear-gradient(135deg, #0099bb, var(--cyan));
+            border: none; color: #000; font-weight: bold; font-size: 13px;
+            cursor: pointer; border-radius: 4px; letter-spacing: 2px; transition: all 0.2s;
+        }
+        .parse-btn:hover { box-shadow: 0 0 20px var(--cyan); transform: translateY(-2px); }
+
+        .stats {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(26, 26, 36, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.4); border-radius: 6px;
+            padding: 12px; font-size: 11px; z-index: 100;
+        }
+        .stats-value { color: var(--cyan); font-weight: bold; }
+
+        .legend {
+            position: absolute; bottom: 20px; left: 20px;
+            background: rgba(26, 26, 36, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.4); border-radius: 6px;
+            padding: 12px; font-size: 10px; z-index: 100;
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+        .legend-color { width: 14px; height: 14px; border-radius: 3px; }
+
+        .info-panel {
+            position: absolute; top: 70px; right: 20px;
+            background: rgba(26, 26, 36, 0.95);
+            border: 1px solid rgba(0, 212, 255, 0.4); border-radius: 6px;
+            padding: 12px; font-size: 10px; line-height: 1.6; z-index: 100; max-width: 220px;
+        }
+        .info-panel div { margin: 3px 0; }
+
+        #nodeEditOverlay {
+            position: absolute; display: none;
+            background: rgba(10, 10, 15, 0.95);
+            border: 2px solid var(--cyan); border-radius: 8px;
+            padding: 15px; z-index: 1000;
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
+        }
+        #nodeEditOverlay h4 { color: var(--cyan); margin-bottom: 10px; font-size: 12px; }
+        #nodeEditOverlay textarea, #nodeEditOverlay input {
+            width: 100%; background: #0d0d12; border: 1px solid #444;
+            color: #ccc; padding: 8px; font-family: 'Consolas', monospace;
+            font-size: 12px; border-radius: 4px; margin-bottom: 10px;
+        }
+        #nodeEditOverlay textarea { height: 150px; resize: vertical; }
+        #nodeEditOverlay input:focus, #nodeEditOverlay textarea:focus { border-color: var(--cyan); outline: none; }
+        #nodeEditOverlay .edit-buttons { display: flex; gap: 10px; }
+        #nodeEditOverlay .edit-buttons button {
+            flex: 1; padding: 8px; border: none; border-radius: 4px;
+            font-family: 'Consolas', monospace; cursor: pointer; font-weight: bold;
+        }
+        #nodeEditOverlay .btn-save { background: var(--cyan); color: #000; }
+        #nodeEditOverlay .btn-cancel { background: #444; color: #ccc; }
+
+        .cursor-resize-nw { cursor: nw-resize; }
+        .cursor-resize-ne { cursor: ne-resize; }
+        .cursor-resize-sw { cursor: sw-resize; }
+        .cursor-resize-se { cursor: se-resize; }
+        .cursor-grab { cursor: grab; }
+        .cursor-grabbing { cursor: grabbing; }
+        .cursor-text { cursor: text; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">⚡ BLITZMAX <span>VISUALIZER</span></div>
+        
+        <div class="toolbar">
+            <button class="btn active" id="btnSelect">🖱️ Select</button>
+            <button class="btn" id="btnPan">✋ Pan</button>
+            <div class="divider"></div>
+            <button class="btn" id="btnZoomIn">🔍+</button>
+            <button class="btn" id="btnZoomOut">🔍-</button>
+            <button class="btn" id="btnFit">⊡ Fit</button>
+            <div class="divider"></div>
+            <button class="btn" id="btnExport">💾 Export</button>
+            <button class="btn" id="btnImport">📂 Import</button>
+            <button class="btn delete" id="btnClear">🗑️ Clear</button>
+        </div>
+
+        <div class="code-panel" id="codePanel">
+            <div class="code-header" id="codePanelHeader">
+                <h3>📝 CODE BLITZMAX</h3>
+                <span id="toggleIcon">▼</span>
+            </div>
+            <div class="code-content">
+                <textarea id="codeInput" placeholder="Colle ton code BlitzMax NG ici..."></textarea>
+                <button class="parse-btn" id="btnParse">⚡ ANALYSER LE CODE</button>
+            </div>
+        </div>
+
+        <canvas id="canvas"></canvas>
+        <input type="file" id="fileInput" accept=".json" style="display:none;">
+
+        <!-- Edit overlay -->
+        <div id="nodeEditOverlay">
+            <h4 id="editTitle">Éditer le node</h4>
+            <input type="text" id="editLabelInput" placeholder="Titre du node">
+            <textarea id="editContentInput" placeholder="Contenu du node"></textarea>
+            <div class="edit-buttons">
+                <button class="btn-save" id="btnSaveEdit">✓ Sauver</button>
+                <button class="btn-cancel" id="btnCancelEdit">✗ Annuler</button>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div style="color: var(--cyan); font-weight: bold; margin-bottom: 8px;">NODES</div>
+            <div class="legend-item"><div class="legend-color" style="background: #ff5555;"></div><span>Main</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #b366ff;"></div><span>Type</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Method</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #22cc88;"></div><span>Function (static)</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #66ff66;"></div><span>Function</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #ff9933;"></div><span>Globals</span></div>
+            <div style="color: var(--cyan); font-weight: bold; margin: 10px 0 8px 0;">LIENS</div>
+            <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Appel</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #ffdd44;"></div><span>Variable</span></div>
+            <div class="legend-item"><div class="legend-color" style="background: #b366ff;"></div><span>Extends</span></div>
+        </div>
+
+        <div class="info-panel">
+            <div>🖱️ <strong>DRAG</strong> titre → déplacer</div>
+            <div>📐 <strong>DRAG</strong> coins → resize</div>
+            <div>✏️ <strong>DOUBLE-CLIC</strong> → éditer</div>
+            <div>📋 <strong>CTRL+C/V</strong> → copier/coller</div>
+            <div>🔍 <strong>MOLETTE</strong> → zoom</div>
+            <div>✋ <strong>CLIC DROIT</strong> → pan</div>
+            <div>🗑️ <strong>SUPPR</strong> → supprimer</div>
+        </div>
+
+        <div class="stats">
+            <div>MAIN: <span class="stats-value" id="mainCount">0</span></div>
+            <div>TYPES: <span class="stats-value" id="typeCount">0</span></div>
+            <div>METHODS: <span class="stats-value" id="methodCount">0</span></div>
+            <div>FUNCTIONS: <span class="stats-value" id="funcCount">0</span></div>
+            <div>GLOBALS: <span class="stats-value" id="globalCount">0</span></div>
+            <div>LINKS: <span class="stats-value" id="linkCount">0</span></div>
+            <div>ZOOM: <span class="stats-value" id="zoomLevel">100%</span></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // STATE
+        // ============================================
+        const state = {
+            nodes: [],
+            connections: [],
+            nextNodeId: 1,
+            nextConnId: 1,
+            mode: 'select',
+            selectedNode: null,
+            draggingNode: null,
+            dragOffset: null,
+            resizingNode: null,
+            resizeCorner: null,
+            resizeStart: null,
+            resizeInitialBounds: null,
+            camera: { x: 0, y: 0, zoom: 1 },
+            isPanning: false,
+            panStart: { x: 0, y: 0 },
+            lastTime: performance.now(),
+            animationTime: 0,
+            
+            // Editing
+            editingNode: null,
+            clipboard: { label: '', content: '' },
+            
+            // Constants
+            TITLE_BAR_HEIGHT: 28,
+            NODE_PADDING: 10,
+            LINE_HEIGHT: 16,
+            MIN_NODE_WIDTH: 150,
+            MIN_NODE_HEIGHT: 60,
+            canvasWidth: 0,
+            canvasHeight: 0,
+            
+            colors: {
+                type: '#b366ff',
+                method: '#00d4ff',
+                function: '#66ff66',
+                staticfunc: '#22cc88',
+                global: '#ff9933',
+                main: '#ff5555'
+            }
+        };
+
+        // ============================================
+        // BLITZMAX PARSER (improved)
+        // ============================================
+        function suffixToType(suffix) {
+            switch(suffix) {
+                case '%': return 'Int';
+                case '#': return 'Float';
+                case '!': return 'Double';
+                case '$': return 'String';
+                case '@': return 'Byte';
+                default: return 'Unknown';
+            }
+        }
+        
+        function parseVarDeclaration(str) {
+            str = str.trim();
+            let match = str.match(/^(\w+)\s*:\s*(\w+)(\[.*?\])?(?:\s*=\s*(.+))?$/);
+            if (match) {
+                return { name: match[1], type: match[2] + (match[3] ? '[]' : ''), value: match[4] || null, raw: str };
+            }
+            match = str.match(/^(\w+)([%#!$@]+)(\[.*?\])?(?:\s*=\s*(.+))?$/);
+            if (match) {
+                return { name: match[1], type: suffixToType(match[2]) + (match[3] ? '[]' : ''), value: match[4] || null, raw: str };
+            }
+            match = str.match(/^(\w+)\s*=\s*(.+)$/);
+            if (match) {
+                return { name: match[1], type: 'Auto', value: match[2], raw: str };
+            }
+            return null;
+        }
+        
+        function parseBlitzMaxCode(code) {
+            const result = { types: [], functions: [], globals: [], consts: [], mainCode: [] };
+            const lines = code.split('\n');
+            let currentType = null;
+            let currentMethod = null;
+            let currentFunction = null;
+            let inRemBlock = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+                const upperTrimmed = trimmed.toUpperCase();
+
+                if (upperTrimmed.startsWith('REM')) { inRemBlock = true; continue; }
+                if (upperTrimmed === 'END REM' || upperTrimmed === 'ENDREM') { inRemBlock = false; continue; }
+                if (inRemBlock) continue;
+                if (!trimmed || trimmed.startsWith("'")) continue;
+                if (upperTrimmed.startsWith('DEFDATA') || upperTrimmed.startsWith('#')) continue;
+                
+                const codeOnly = trimmed.split("'")[0].trim();
+                if (!codeOnly) continue;
+
+                // Type declaration
+                const typeMatch = codeOnly.match(/^Type\s+(\w+)(?:\s+Extends\s+(\w+))?/i);
+                if (typeMatch) {
+                    currentType = { name: typeMatch[1], extends: typeMatch[2] || null, fields: [], methods: [], consts: [], globals: [] };
+                    continue;
+                }
+
+                // End Type
+                if (upperTrimmed === 'END TYPE' || upperTrimmed === 'ENDTYPE') {
+                    if (currentType) { result.types.push(currentType); currentType = null; }
+                    continue;
+                }
+
+                // Inside a Type
+                if (currentType) {
+                    // Fields
+                    const fieldMatch = codeOnly.match(/^Field\s+(.+)/i);
+                    if (fieldMatch) {
+                        const fieldsPart = fieldMatch[1];
+                        if (fieldsPart.includes(',')) {
+                            const parts = fieldsPart.split(',').map(p => p.trim());
+                            const firstHasType = parts[0].includes(':');
+                            if (firstHasType) {
+                                parts.forEach(part => {
+                                    const parsed = parseVarDeclaration(part);
+                                    if (parsed) currentType.fields.push({ name: parsed.name, type: parsed.type, raw: `Field ${part}` });
+                                });
+                            } else {
+                                const lastPart = parts[parts.length - 1];
+                                const typeM = lastPart.match(/(\w+)\s*:\s*(\w+)/);
+                                if (typeM) {
+                                    const sharedType = typeM[2];
+                                    currentType.fields.push({ name: typeM[1], type: sharedType, raw: `Field ${typeM[1]}:${sharedType}` });
+                                    for (let pi = 0; pi < parts.length - 1; pi++) {
+                                        const name = parts[pi].trim();
+                                        if (name) currentType.fields.push({ name, type: sharedType, raw: `Field ${name}:${sharedType}` });
+                                    }
+                                }
+                            }
+                        } else {
+                            const parsed = parseVarDeclaration(fieldsPart);
+                            if (parsed) currentType.fields.push({ name: parsed.name, type: parsed.type, raw: codeOnly });
+                        }
+                        continue;
+                    }
+
+                    // Const/Global in Type
+                    const constMatch = codeOnly.match(/^Const\s+(.+)/i);
+                    if (constMatch) {
+                        const parsed = parseVarDeclaration(constMatch[1]);
+                        if (parsed) currentType.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                        continue;
+                    }
+                    const globalMatch = codeOnly.match(/^Global\s+(.+)/i);
+                    if (globalMatch) {
+                        const parsed = parseVarDeclaration(globalMatch[1]);
+                        if (parsed) currentType.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                        continue;
+                    }
+
+                    // Abstract Method
+                    const abstractMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\([^)]*\)\s*Abstract/i);
+                    if (abstractMatch) {
+                        currentType.methods.push({ name: abstractMatch[1], returnType: abstractMatch[3] || 'Void', params: '', code: ['[Abstract]'], isAbstract: true });
+                        continue;
+                    }
+
+                    // Function in Type
+                    const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)/i);
+                    if (typeFuncMatch && !currentMethod) {
+                        currentMethod = { name: typeFuncMatch[1], returnType: typeFuncMatch[3] || (typeFuncMatch[2] ? suffixToType(typeFuncMatch[2]) : 'Void'), params: typeFuncMatch[4] || '', code: [], isFunction: true };
+                        continue;
+                    }
+
+                    // Method
+                    const methodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)?/i);
+                    if (methodMatch && !currentMethod) {
+                        currentMethod = { name: methodMatch[1], returnType: methodMatch[3] || (methodMatch[2] ? suffixToType(methodMatch[2]) : 'Void'), params: methodMatch[4] || '', code: [] };
+                        continue;
+                    }
+
+                    // End Method/Function
+                    if (upperTrimmed === 'END METHOD' || upperTrimmed === 'ENDMETHOD' || upperTrimmed === 'END FUNCTION' || upperTrimmed === 'ENDFUNCTION') {
+                        if (currentMethod) { currentType.methods.push(currentMethod); currentMethod = null; }
+                        continue;
+                    }
+
+                    if (currentMethod) { currentMethod.code.push(line); continue; }
+                }
+
+                // Global Function - handle complex return types like :Gui_NodalNet
+                const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)/i);
+                if (funcMatch && !currentType) {
+                    currentFunction = { name: funcMatch[1], returnType: funcMatch[3] || (funcMatch[2] ? suffixToType(funcMatch[2]) : 'Void'), params: funcMatch[4] || '', code: [] };
+                    continue;
+                }
+
+                // End Function
+                if ((upperTrimmed === 'END FUNCTION' || upperTrimmed === 'ENDFUNCTION' || upperTrimmed === 'END') && !currentType) {
+                    if (currentFunction) { result.functions.push(currentFunction); currentFunction = null; }
+                    continue;
+                }
+
+                if (currentFunction && !currentType) { currentFunction.code.push(line); continue; }
+
+                // Global variables
+                const globalVarMatch = codeOnly.match(/^Global\s+(.+)/i);
+                if (globalVarMatch && !currentType && !currentFunction) {
+                    const parsed = parseVarDeclaration(globalVarMatch[1]);
+                    if (parsed) result.globals.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                    continue;
+                }
+
+                // Const
+                const constVarMatch = codeOnly.match(/^Const\s+(.+)/i);
+                if (constVarMatch && !currentType && !currentFunction) {
+                    const parsed = parseVarDeclaration(constVarMatch[1]);
+                    if (parsed) result.consts.push({ name: parsed.name, type: parsed.type, value: parsed.value, raw: codeOnly });
+                    continue;
+                }
+
+                // Main code
+                if (!currentType && !currentFunction) {
+                    const upper = codeOnly.toUpperCase();
+                    if (upper.startsWith('FRAMEWORK ') || upper.startsWith('IMPORT ') || upper.startsWith('INCLUDE ') || upper.startsWith('STRICT') || upper.startsWith('SUPERSTRICT')) continue;
+                    result.mainCode.push(codeOnly);
+                }
+            }
+            return result;
+        }
+
+        // ============================================
+        // CALCULATE NODE WIDTH
+        // ============================================
+        function calculateNodeWidth(label, content, minWidth = 150) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.font = '12px Consolas, monospace';
+            
+            let maxWidth = ctx.measureText(label).width + 50;
+            if (content) {
+                content.split('\n').forEach(line => {
+                    const w = ctx.measureText(line).width + 24;
+                    if (w > maxWidth) maxWidth = w;
+                });
+            }
+            return Math.max(minWidth, Math.min(maxWidth, 450));
+        }
+
+        // ============================================
+        // GENERATE NODES
+        // ============================================
+        function generateNodesFromParsed(parsed) {
+            state.nodes = [];
+            state.connections = [];
+            state.nextNodeId = 1;
+            state.nextConnId = 1;
+
+            const nodeMap = {};
+            const ROW_GAP = 50;
+            const COL_GAP = 60;
+            const GROUP_GAP = 100;
+            let currentY = 80;
+
+            // === MAIN + GLOBALS (row 0) ===
+            let rowX = 80;
+            let rowMaxH = 0;
+
+            if (parsed.mainCode.length > 0) {
+                const content = parsed.mainCode.join('\n');
+                const w = calculateNodeWidth('▶ MAIN', content, 350);
+                const h = state.TITLE_BAR_HEIGHT + Math.max(parsed.mainCode.length * state.LINE_HEIGHT + 20, 80);
+                const mainNode = { id: state.nextNodeId++, x: rowX, y: currentY, width: w, height: h, label: '▶ MAIN PROGRAM', content, nodeType: 'main', color: state.colors.main, data: {} };
+                state.nodes.push(mainNode);
+                nodeMap['__MAIN__'] = mainNode;
+                rowX += w + COL_GAP;
+                rowMaxH = Math.max(rowMaxH, h);
+            }
+
+            if (parsed.globals.length > 0 || parsed.consts.length > 0) {
+                const lines = [...parsed.consts.map(c => c.raw), ...parsed.globals.map(g => g.raw)];
+                const content = lines.join('\n');
+                const w = calculateNodeWidth('🌐 GLOBALS', content, 280);
+                const h = state.TITLE_BAR_HEIGHT + Math.max(lines.length * state.LINE_HEIGHT + 20, 60);
+                const globalsNode = { id: state.nextNodeId++, x: rowX, y: currentY, width: w, height: h, label: '🌐 GLOBALS & CONST', content, nodeType: 'global', color: state.colors.global, data: { globals: parsed.globals, consts: parsed.consts } };
+                state.nodes.push(globalsNode);
+                parsed.globals.forEach(g => nodeMap[g.name] = globalsNode);
+                parsed.consts.forEach(c => nodeMap[c.name] = globalsNode);
+                rowMaxH = Math.max(rowMaxH, h);
+            }
+
+            currentY += rowMaxH + GROUP_GAP;
+
+            // === TYPES with Methods ===
+            parsed.types.forEach(type => {
+                const fieldLines = type.fields.map(f => f.raw);
+                const constLines = type.consts.map(c => c.raw);
+                const globalLines = type.globals.map(g => g.raw);
+                const allLines = [...constLines, ...globalLines, ...fieldLines];
+                const typeContent = allLines.join('\n');
+                const typeW = calculateNodeWidth(type.name, typeContent, 250);
+                const typeH = state.TITLE_BAR_HEIGHT + Math.max(allLines.length * state.LINE_HEIGHT + 20, 80);
+
+                const typeNode = { id: state.nextNodeId++, x: 80, y: currentY, width: typeW, height: typeH, label: type.name + (type.extends ? ` ◀ ${type.extends}` : ''), content: typeContent, nodeType: 'type', color: state.colors.type, data: type };
+                state.nodes.push(typeNode);
+                nodeMap[type.name] = typeNode;
+
+                // Methods in columns to the right
+                let methodX = 80 + typeW + COL_GAP;
+                let methodY = currentY;
+                let colMaxW = 0;
+                let maxY = currentY + typeH;
+                const methodsPerCol = Math.ceil(type.methods.length / 2);
+
+                type.methods.forEach((method, idx) => {
+                    const codeLines = method.code.filter(l => l.trim());
+                    const codeContent = codeLines.map(l => l.trim()).join('\n');
+                    const prefix = method.isFunction ? 'Function ' : 'Method ';
+                    const suffix = method.isAbstract ? ' [Abstract]' : '';
+                    const sig = `${prefix}${method.name}(${method.params})${method.returnType !== 'Void' ? ':' + method.returnType : ''}${suffix}`;
+                    const methodW = calculateNodeWidth(sig, codeContent, 280);
+                    const methodH = state.TITLE_BAR_HEIGHT + Math.max(codeLines.length * state.LINE_HEIGHT + 20, 50);
+                    const nodeColor = method.isFunction ? state.colors.staticfunc : state.colors.method;
+
+                    const methodNode = { id: state.nextNodeId++, x: methodX, y: methodY, width: methodW, height: methodH, label: sig, content: codeContent, nodeType: method.isFunction ? 'staticfunc' : 'method', color: nodeColor, data: method };
+                    state.nodes.push(methodNode);
+                    nodeMap[`${type.name}.${method.name}`] = methodNode;
+
+                    state.connections.push({ id: state.nextConnId++, from: typeNode.id, to: methodNode.id, fromAnchor: 'right', toAnchor: 'left', type: 'contains' });
+
+                    colMaxW = Math.max(colMaxW, methodW);
+                    methodY += methodH + ROW_GAP;
+                    maxY = Math.max(maxY, methodY);
+
+                    if ((idx + 1) === methodsPerCol && type.methods.length > 2) {
+                        methodX += colMaxW + COL_GAP;
+                        methodY = currentY;
+                        colMaxW = 0;
+                    }
+                });
+
+                currentY = maxY + GROUP_GAP;
+            });
+
+            // Extends connections
+            parsed.types.forEach(type => {
+                if (type.extends && nodeMap[type.name] && nodeMap[type.extends]) {
+                    state.connections.push({ id: state.nextConnId++, from: nodeMap[type.name].id, to: nodeMap[type.extends].id, fromAnchor: 'top', toAnchor: 'bottom', type: 'extends' });
+                }
+            });
+
+            // === GLOBAL FUNCTIONS (grid) ===
+            if (parsed.functions.length > 0) {
+                const GRID_COLS = Math.min(4, Math.ceil(Math.sqrt(parsed.functions.length)));
+                const colHeights = new Array(GRID_COLS).fill(0);
+                const funcY = currentY + 30;
+
+                parsed.functions.forEach(func => {
+                    const codeLines = func.code.filter(l => l.trim());
+                    const codeContent = codeLines.map(l => l.trim()).join('\n');
+                    const sig = `${func.name}(${func.params})${func.returnType !== 'Void' ? ':' + func.returnType : ''}`;
+                    const funcW = calculateNodeWidth(sig, codeContent, 300);
+                    const funcH = state.TITLE_BAR_HEIGHT + Math.max(codeLines.length * state.LINE_HEIGHT + 20, 60);
+
+                    let minCol = 0;
+                    for (let i = 1; i < GRID_COLS; i++) if (colHeights[i] < colHeights[minCol]) minCol = i;
+
+                    const nodeX = 80 + minCol * (380 + COL_GAP);
+                    const nodeY = funcY + colHeights[minCol];
+
+                    const funcNode = { id: state.nextNodeId++, x: nodeX, y: nodeY, width: funcW, height: funcH, label: sig, content: codeContent, nodeType: 'function', color: state.colors.function, data: func };
+                    state.nodes.push(funcNode);
+                    nodeMap[func.name] = funcNode;
+
+                    colHeights[minCol] += funcH + ROW_GAP;
+                });
+            }
+
+            analyzeCallsAndConnect(nodeMap);
+            updateStats();
+        }
+
+        function analyzeCallsAndConnect(nodeMap) {
+            const globalNames = [];
+            state.nodes.filter(n => n.nodeType === 'global').forEach(gn => {
+                if (gn.data.globals) gn.data.globals.forEach(g => globalNames.push(g.name));
+                if (gn.data.consts) gn.data.consts.forEach(c => globalNames.push(c.name));
+            });
+            const globalsNode = state.nodes.find(n => n.nodeType === 'global');
+
+            const builtins = ['Sin','Cos','Abs','Min','Max','Sqrt','Floor','Ceil','Int','Float','String','DrawImage','DrawRect','DrawOval','DrawLine','DrawText','SetColor','SetAlpha','SetBlend','SetScale','SetRotation','LoadImage','Graphics','Flip','Cls','KeyHit','KeyDown','MouseX','MouseY','Print','MilliSecs','Delay','New','Null','Self','Super','Len','Chr','Asc','SeedRnd','Rnd','Rand','For','If','While','Select','Return','Local','EachIn','SetLineWidth','SetViewport','Round','Sqr',
+            'CreateList','ListAddLast','ListAddFirst','ListRemove','ListClear','ListContains','ListSort','ClearList',
+            'CreateMutex','LockMutex','UnlockMutex','TryLockMutex',
+            'CreateTCPSocket','CreateUDPSocket','BindSocket','SocketListen','SocketAccept','SocketConnect','SocketConnected','CloseSocket','SocketRemoteIP','SocketLocalIP','SocketRemotePort','SocketLocalPort',
+            'CreateSocketStream','ReadLine','WriteLine','ReadString','WriteString','ReadByte','WriteByte','ReadShort','WriteShort','ReadInt','WriteInt','WriteFloat','ReadFloat','CloseStream','Eof','StreamPos','SeekStream',
+            'CreateThread','ThreadRunning','WaitThread','DetachThread','ThreadID',
+            'CreateBank','BankSize','ResizeBank','CopyBank','PeekByte','PokeByte','PeekShort','PokeShort','PeekInt','PokeInt','ReadBank','WriteBank',
+            'Replace','Left','Right','Mid','Instr','Upper','Lower','Trim','LTrim','RTrim','LSet','RSet','Hex','Bin',
+            'FileType','FileSize','FileTime','FileMode','CreateFile','ReadFile','WriteFile','OpenFile','CloseFile','SeekFile','ReadDir','CloseDir','NextFile','CurrentDir','CreateDir','DeleteDir','DeleteFile','CopyFile','RenameFile','ChangeDir','RealPath','StripDir','StripExt','StripAll','ExtractDir','ExtractExt',
+            'RuntimeError','DebugLog','DebugStop','Assert','End',
+            'LoadSound','PlaySound','StopChannel','PauseChannel','ResumeChannel','ChannelPlaying','ChannelPan','ChannelVolume','ChannelPitch',
+            'LoadMusic','PlayMusic','StopMusic','PauseMusic','ResumeMusic','SetMusicVolume',
+            'SetGraphicsDriver','GraphicsWidth','GraphicsHeight','GraphicsDepth','SetGraphics','Viewport','Origin','ClsColor','SetViewport','GetViewport','SetOrigin','GetOrigin',
+            'AppTitle','AppFile','AppDir','LaunchDir','CommandLine','SystemProperty',
+            'CurrentTime','CurrentDate','LoadText','SaveText','Confirm','Notify','Proceed','RequestFile','RequestDir',
+            'TStream','TBank','TList','TMap','TSocket','TThread','TMutex','TImage','TPixmap','TAudioSample',
+            'DottedIP']; // Added common BlitzMax functions to avoid false positives
+
+            state.nodes.forEach(node => {
+                if (!node.content) return;
+
+                // Check global usage
+                if (globalsNode && node.id !== globalsNode.id) {
+                    for (const gName of globalNames) {
+                        if (new RegExp(`\\b${gName}\\b`).test(node.content)) {
+                            if (!state.connections.some(c => c.from === globalsNode.id && c.to === node.id && c.type === 'uses')) {
+                                state.connections.push({ id: state.nextConnId++, from: globalsNode.id, to: node.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Function calls - with parentheses: FunctionName()
+                const callRegex = /\b(\w+)\s*\(/g;
+                let match;
+                while ((match = callRegex.exec(node.content)) !== null) {
+                    const name = match[1];
+                    if (builtins.some(b => b.toLowerCase() === name.toLowerCase())) continue;
+                    const target = nodeMap[name];
+                    if (target && target.id !== node.id && target.nodeType !== 'global') {
+                        if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
+                            state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
+                        }
+                    }
+                }
+
+                // Function calls without parentheses - BlitzMax style: FunctionName param
+                // Match: word followed by space and another word/variable (not keywords or operators)
+                const keywords = ['if','then','else','elseif','endif','for','to','step','next','while','wend','repeat','until','forever','select','case','default','endselect','return','local','global','const','field','method','function','endmethod','endfunction','type','endtype','end','new','null','self','super','and','or','not','mod','shl','shr','abstract','final','eachin','exit','continue','strict','superstrict','private','public','protected'];
+                const noParenCallRegex = /\b(\w+)\s+(\w+)/g;
+                while ((match = noParenCallRegex.exec(node.content)) !== null) {
+                    const name = match[1];
+                    const nextWord = match[2];
+                    // Skip if it's a keyword, builtin, or looks like a type declaration
+                    if (keywords.some(k => k.toLowerCase() === name.toLowerCase())) continue;
+                    if (builtins.some(b => b.toLowerCase() === name.toLowerCase())) continue;
+                    if (keywords.some(k => k.toLowerCase() === nextWord.toLowerCase())) continue;
+                    // Skip if it's a variable declaration (name:Type pattern)
+                    if (node.content.substring(match.index).match(/^\w+\s+\w+\s*:/)) continue;
+                    
+                    const target = nodeMap[name];
+                    if (target && target.id !== node.id && target.nodeType !== 'global' && (target.nodeType === 'function' || target.nodeType === 'method' || target.nodeType === 'staticfunc')) {
+                        if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
+                            state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
+                        }
+                    }
+                }
+
+                // Method calls: obj.Method()
+                const methodRegex = /(\w+)\.(\w+)\s*\(/g;
+                while ((match = methodRegex.exec(node.content)) !== null) {
+                    const methodName = match[2];
+                    for (const [key, target] of Object.entries(nodeMap)) {
+                        if ((key === `${match[1]}.${methodName}` || key.endsWith('.' + methodName)) && target.id !== node.id) {
+                            if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
+                                state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
+                            }
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateStats() {
+            document.getElementById('mainCount').textContent = state.nodes.filter(n => n.nodeType === 'main').length;
+            document.getElementById('typeCount').textContent = state.nodes.filter(n => n.nodeType === 'type').length;
+            document.getElementById('methodCount').textContent = state.nodes.filter(n => n.nodeType === 'method' || n.nodeType === 'staticfunc').length;
+            document.getElementById('funcCount').textContent = state.nodes.filter(n => n.nodeType === 'function').length;
+            document.getElementById('globalCount').textContent = state.nodes.filter(n => n.nodeType === 'global').length;
+            document.getElementById('linkCount').textContent = state.connections.length;
+            document.getElementById('zoomLevel').textContent = Math.round(state.camera.zoom * 100) + '%';
+        }
+
+        // ============================================
+        // CANVAS & UTILITIES
+        // ============================================
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            state.canvasWidth = canvas.width;
+            state.canvasHeight = canvas.height;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function screenToWorld(x, y) { return { x: (x - state.camera.x) / state.camera.zoom, y: (y - state.camera.y) / state.camera.zoom }; }
+        function worldToScreen(x, y) { return { x: x * state.camera.zoom + state.camera.x, y: y * state.camera.zoom + state.camera.y }; }
+
+        function getNodeAt(sx, sy) {
+            const w = screenToWorld(sx, sy);
+            for (let i = state.nodes.length - 1; i >= 0; i--) {
+                const n = state.nodes[i];
+                if (w.x >= n.x && w.x <= n.x + n.width && w.y >= n.y && w.y <= n.y + n.height) return n;
+            }
+            return null;
+        }
+        function getNodeTitleAt(sx, sy) {
+            const w = screenToWorld(sx, sy);
+            for (let i = state.nodes.length - 1; i >= 0; i--) {
+                const n = state.nodes[i];
+                if (w.x >= n.x && w.x <= n.x + n.width && w.y >= n.y && w.y <= n.y + state.TITLE_BAR_HEIGHT) return n;
+            }
+            return null;
+        }
+        function getResizeCorner(sx, sy) {
+            const w = screenToWorld(sx, sy);
+            const cs = 16;
+            for (let i = state.nodes.length - 1; i >= 0; i--) {
+                const n = state.nodes[i];
+                const corners = { nw: [n.x, n.y], ne: [n.x + n.width, n.y], sw: [n.x, n.y + n.height], se: [n.x + n.width, n.y + n.height] };
+                for (const [corner, [cx, cy]] of Object.entries(corners)) {
+                    if (Math.abs(w.x - cx) < cs && Math.abs(w.y - cy) < cs) return { node: n, corner };
+                }
+            }
+            return null;
+        }
+        function getNodeAnchors(n) {
+            return { top: { x: n.x + n.width / 2, y: n.y }, bottom: { x: n.x + n.width / 2, y: n.y + n.height }, left: { x: n.x, y: n.y + n.height / 2 }, right: { x: n.x + n.width, y: n.y + n.height / 2 } };
+        }
+
+        // ============================================
+        // RENDERING
+        // ============================================
+        function drawGrid() {
+            ctx.save();
+            ctx.globalAlpha = 0.08;
+            ctx.fillStyle = '#00d4ff';
+            for (let x = 0; x <= state.canvasWidth; x += 40) {
+                for (let y = 0; y <= state.canvasHeight; y += 40) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, 1, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
+        }
+
+        function getBezierPoint(p0, p1, p2, p3, t) {
+            const mt = 1 - t;
+            return { x: mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x, y: mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y };
+        }
+        function getBezierTangent(p0, p1, p2, p3, t) {
+            const mt = 1 - t;
+            return { x: 3*mt*mt*(p1.x-p0.x) + 6*mt*t*(p2.x-p1.x) + 3*t*t*(p3.x-p2.x), y: 3*mt*mt*(p1.y-p0.y) + 6*mt*t*(p2.y-p1.y) + 3*t*t*(p3.y-p2.y) };
+        }
+
+        function drawConnection(conn) {
+            const fromN = state.nodes.find(n => n.id === conn.from);
+            const toN = state.nodes.find(n => n.id === conn.to);
+            if (!fromN || !toN) return;
+
+            const fromA = getNodeAnchors(fromN)[conn.fromAnchor];
+            const toA = getNodeAnchors(toN)[conn.toAnchor];
+            const from = worldToScreen(fromA.x, fromA.y);
+            const to = worldToScreen(toA.x, toA.y);
+
+            const dist = Math.sqrt((to.x-from.x)**2 + (to.y-from.y)**2);
+            const curve = Math.min(dist * 0.4, 100);
+            const getCP = (pos, anchor, s) => {
+                switch(anchor) { case 'top': return {x:pos.x,y:pos.y-s}; case 'bottom': return {x:pos.x,y:pos.y+s}; case 'left': return {x:pos.x-s,y:pos.y}; case 'right': return {x:pos.x+s,y:pos.y}; default: return pos; }
+            };
+            const cp1 = getCP(from, conn.fromAnchor, curve);
+            const cp2 = getCP(to, conn.toAnchor, curve);
+
+            const isContains = conn.type === 'contains';
+            const isCalls = conn.type === 'calls';
+            const isUses = conn.type === 'uses';
+            const isExtends = conn.type === 'extends';
+
+            ctx.save();
+            ctx.strokeStyle = isContains ? '#444' : isCalls ? '#00d4ff' : isUses ? '#ffdd44' : isExtends ? '#b366ff' : '#555';
+            ctx.lineWidth = isContains ? 1.5 : isExtends ? 3 : 2.5;
+            ctx.shadowBlur = isContains ? 0 : 10;
+            ctx.shadowColor = ctx.strokeStyle;
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, to.x, to.y);
+            ctx.stroke();
+            ctx.restore();
+
+            // Particles
+            if (!isContains) {
+                const numP = isExtends ? 2 : 3;
+                const speed = isExtends ? 0.25 : 0.35;
+                const pColor = isExtends ? '#cc99ff' : isUses ? '#ffee66' : '#66e0ff';
+                const gColor = isExtends ? '#b366ff' : isUses ? '#ffdd44' : '#00d4ff';
+                for (let i = 0; i < numP; i++) {
+                    const t = ((state.animationTime * speed + i / numP) % 1);
+                    const pt = getBezierPoint(from, cp1, cp2, to, t);
+                    ctx.save();
+                    const grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 12);
+                    grad.addColorStop(0, pColor);
+                    grad.addColorStop(0.3, gColor + 'aa');
+                    grad.addColorStop(1, gColor + '00');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = pColor;
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+
+            // Arrow
+            if (!isContains) {
+                const tang = getBezierTangent(from, cp1, cp2, to, 0.95);
+                ctx.save();
+                ctx.fillStyle = isExtends ? '#b366ff' : isUses ? '#ffdd44' : '#00d4ff';
+                ctx.translate(to.x, to.y);
+                ctx.rotate(Math.atan2(tang.y, tang.x));
+                if (isExtends) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(-14, -8);
+                    ctx.lineTo(-14, 8);
+                    ctx.closePath();
+                    ctx.strokeStyle = '#b366ff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.fillStyle = '#0a0a0f';
+                    ctx.fill();
+                } else {
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(-12, -6);
+                    ctx.lineTo(-12, 6);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function drawNode(node) {
+            const scr = worldToScreen(node.x, node.y);
+            const w = node.width * state.camera.zoom;
+            const h = node.height * state.camera.zoom;
+            const titleH = state.TITLE_BAR_HEIGHT * state.camera.zoom;
+            const r = 6 * state.camera.zoom;
+
+            // Shadow
+            ctx.save();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowOffsetY = 4;
+            ctx.fillStyle = '#12121a';
+            roundRect(ctx, scr.x, scr.y, w, h, r);
+            ctx.fill();
+            ctx.restore();
+
+            // Title bar
+            ctx.save();
+            const grad = ctx.createLinearGradient(scr.x, scr.y, scr.x + w, scr.y);
+            grad.addColorStop(0, node.color);
+            grad.addColorStop(1, adjustColor(node.color, -40));
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(scr.x + r, scr.y);
+            ctx.lineTo(scr.x + w - r, scr.y);
+            ctx.quadraticCurveTo(scr.x + w, scr.y, scr.x + w, scr.y + r);
+            ctx.lineTo(scr.x + w, scr.y + titleH);
+            ctx.lineTo(scr.x, scr.y + titleH);
+            ctx.lineTo(scr.x, scr.y + r);
+            ctx.quadraticCurveTo(scr.x, scr.y, scr.x + r, scr.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            // Border
+            ctx.save();
+            ctx.strokeStyle = state.selectedNode === node.id ? '#fff' : node.color;
+            ctx.lineWidth = state.selectedNode === node.id ? 3 : 1.5;
+            roundRect(ctx, scr.x, scr.y, w, h, r);
+            ctx.stroke();
+            ctx.restore();
+
+            // Resize corners
+            if (state.selectedNode === node.id) {
+                const cs = 8 * state.camera.zoom;
+                ctx.save();
+                ctx.fillStyle = node.color;
+                [[scr.x, scr.y], [scr.x + w, scr.y], [scr.x, scr.y + h], [scr.x + w, scr.y + h]].forEach(([cx, cy]) => {
+                    ctx.fillRect(cx - cs/2, cy - cs/2, cs, cs);
+                });
+                ctx.restore();
+            }
+
+            // Title text
+            ctx.save();
+            const fontSize = Math.max(11 * state.camera.zoom, 9);
+            ctx.font = `bold ${fontSize}px Consolas, monospace`;
+            ctx.fillStyle = '#000';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            let title = node.label;
+            const maxW = w - 20;
+            while (ctx.measureText(title).width > maxW && title.length > 3) title = title.slice(0, -1);
+            if (title !== node.label) title += '…';
+            ctx.fillText(title, scr.x + 10, scr.y + titleH / 2);
+            ctx.restore();
+
+            // Content
+            if (node.content) {
+                ctx.save();
+                const fs = Math.max(10 * state.camera.zoom, 8);
+                ctx.font = `${fs}px Consolas, monospace`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                const lines = node.content.split('\n');
+                const lineH = state.LINE_HEIGHT * state.camera.zoom;
+                const startY = scr.y + titleH + 8 * state.camera.zoom;
+                const maxLines = Math.floor((h - titleH - 16 * state.camera.zoom) / lineH);
+                const contentMaxW = w - 16;
+
+                lines.slice(0, maxLines).forEach((line, i) => {
+                    ctx.fillStyle = line.match(/^(Field|Const|Global)\s/i) ? '#b366ff' : line.match(/^(Local|Return|If|For|While|Select)\b/i) ? '#ff9933' : '#ccc';
+                    let displayLine = line;
+                    while (ctx.measureText(displayLine).width > contentMaxW && displayLine.length > 3) displayLine = displayLine.slice(0, -1);
+                    if (displayLine !== line) displayLine += '…';
+                    ctx.fillText(displayLine, scr.x + 8, startY + i * lineH);
+                });
+                if (lines.length > maxLines) {
+                    ctx.fillStyle = '#666';
+                    ctx.fillText(`... (+${lines.length - maxLines})`, scr.x + 8, startY + maxLines * lineH);
+                }
+                ctx.restore();
+            }
+        }
+
+        function adjustColor(hex, amt) {
+            const num = parseInt(hex.slice(1), 16);
+            const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+            const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
+            const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
+            return `#${(1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1)}`;
+        }
+
+        function roundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }
+
+        function render() {
+            const now = performance.now();
+            state.animationTime += (now - state.lastTime) / 1000;
+            state.lastTime = now;
+
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+            state.connections.forEach(drawConnection);
+            state.nodes.forEach(drawNode);
+            updateStats();
+            requestAnimationFrame(render);
+        }
+
+        // ============================================
+        // EDITING
+        // ============================================
+        function showEditOverlay(node) {
+            state.editingNode = node;
+            const overlay = document.getElementById('nodeEditOverlay');
+            document.getElementById('editLabelInput').value = node.label;
+            document.getElementById('editContentInput').value = node.content || '';
+            document.getElementById('editTitle').textContent = `Éditer: ${node.nodeType.toUpperCase()}`;
+            
+            const scr = worldToScreen(node.x, node.y);
+            overlay.style.left = Math.min(scr.x, window.innerWidth - 350) + 'px';
+            overlay.style.top = Math.min(scr.y, window.innerHeight - 300) + 'px';
+            overlay.style.display = 'block';
+            document.getElementById('editLabelInput').focus();
+        }
+
+        function hideEditOverlay() {
+            document.getElementById('nodeEditOverlay').style.display = 'none';
+            state.editingNode = null;
+        }
+
+        document.getElementById('btnSaveEdit').addEventListener('click', () => {
+            if (state.editingNode) {
+                state.editingNode.label = document.getElementById('editLabelInput').value;
+                state.editingNode.content = document.getElementById('editContentInput').value;
+                // Recalculate width
+                state.editingNode.width = calculateNodeWidth(state.editingNode.label, state.editingNode.content, state.MIN_NODE_WIDTH);
+                const lines = state.editingNode.content ? state.editingNode.content.split('\n').length : 0;
+                state.editingNode.height = state.TITLE_BAR_HEIGHT + Math.max(lines * state.LINE_HEIGHT + 20, 50);
+            }
+            hideEditOverlay();
+        });
+
+        document.getElementById('btnCancelEdit').addEventListener('click', hideEditOverlay);
+
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+
+            if (e.button === 2 || state.mode === 'pan') {
+                state.isPanning = true;
+                state.panStart = { x: e.clientX - state.camera.x, y: e.clientY - state.camera.y };
+                canvas.className = 'cursor-grabbing';
+                return;
+            }
+
+            const resizeHandle = getResizeCorner(x, y);
+            if (resizeHandle && state.mode === 'select') {
+                state.resizingNode = resizeHandle.node.id;
+                state.selectedNode = resizeHandle.node.id;
+                state.resizeCorner = resizeHandle.corner;
+                state.resizeInitialBounds = { left: resizeHandle.node.x, right: resizeHandle.node.x + resizeHandle.node.width, top: resizeHandle.node.y, bottom: resizeHandle.node.y + resizeHandle.node.height };
+                state.resizeStart = screenToWorld(x, y);
+                return;
+            }
+
+            const titleNode = getNodeTitleAt(x, y);
+            if (titleNode) {
+                state.draggingNode = titleNode;
+                const w = screenToWorld(x, y);
+                state.dragOffset = { x: w.x - titleNode.x, y: w.y - titleNode.y };
+                state.selectedNode = titleNode.id;
+                return;
+            }
+
+            const node = getNodeAt(x, y);
+            state.selectedNode = node ? node.id : null;
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+
+            if (state.isPanning) {
+                state.camera.x = e.clientX - state.panStart.x;
+                state.camera.y = e.clientY - state.panStart.y;
+                return;
+            }
+
+            if (state.resizingNode !== null) {
+                const w = screenToWorld(x, y);
+                const node = state.nodes.find(n => n.id === state.resizingNode);
+                if (node && state.resizeInitialBounds && state.resizeStart) {
+                    const dx = w.x - state.resizeStart.x, dy = w.y - state.resizeStart.y;
+                    let nl = state.resizeInitialBounds.left, nr = state.resizeInitialBounds.right;
+                    let nt = state.resizeInitialBounds.top, nb = state.resizeInitialBounds.bottom;
+                    switch (state.resizeCorner) {
+                        case 'se': nr += dx; nb += dy; break;
+                        case 'sw': nl += dx; nb += dy; break;
+                        case 'ne': nr += dx; nt += dy; break;
+                        case 'nw': nl += dx; nt += dy; break;
+                    }
+                    let nw = nr - nl, nh = nb - nt;
+                    if (nw < state.MIN_NODE_WIDTH) { if (state.resizeCorner.includes('w')) nl = nr - state.MIN_NODE_WIDTH; else nr = nl + state.MIN_NODE_WIDTH; nw = state.MIN_NODE_WIDTH; }
+                    if (nh < state.MIN_NODE_HEIGHT) { if (state.resizeCorner.includes('n')) nt = nb - state.MIN_NODE_HEIGHT; else nb = nt + state.MIN_NODE_HEIGHT; nh = state.MIN_NODE_HEIGHT; }
+                    node.x = nl; node.y = nt; node.width = nw; node.height = nh;
+                }
+                return;
+            }
+
+            if (state.draggingNode) {
+                const w = screenToWorld(x, y);
+                state.draggingNode.x = w.x - state.dragOffset.x;
+                state.draggingNode.y = w.y - state.dragOffset.y;
+                return;
+            }
+
+            const rh = getResizeCorner(x, y);
+            if (rh && state.mode === 'select') canvas.className = `cursor-resize-${rh.corner}`;
+            else if (getNodeTitleAt(x, y)) canvas.className = 'cursor-grab';
+            else canvas.className = state.mode === 'pan' ? 'cursor-grab' : '';
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            state.isPanning = false;
+            state.draggingNode = null;
+            state.resizingNode = null;
+            canvas.className = state.mode === 'pan' ? 'cursor-grab' : '';
+        });
+
+        canvas.addEventListener('dblclick', e => {
+            const rect = canvas.getBoundingClientRect();
+            const node = getNodeAt(e.clientX - rect.left, e.clientY - rect.top);
+            if (node) showEditOverlay(node);
+        });
+
+        canvas.addEventListener('wheel', e => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+            const wb = screenToWorld(mx, my);
+            state.camera.zoom = Math.max(0.1, Math.min(3, state.camera.zoom * (e.deltaY > 0 ? 0.9 : 1.1)));
+            const wa = screenToWorld(mx, my);
+            state.camera.x += (wa.x - wb.x) * state.camera.zoom;
+            state.camera.y += (wa.y - wb.y) * state.camera.zoom;
+        });
+
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Delete' && state.selectedNode && !state.editingNode) {
+                state.nodes = state.nodes.filter(n => n.id !== state.selectedNode);
+                state.connections = state.connections.filter(c => c.from !== state.selectedNode && c.to !== state.selectedNode);
+                state.selectedNode = null;
+            }
+            
+            // Copy
+            if (e.ctrlKey && e.key === 'c' && state.selectedNode && !state.editingNode) {
+                const node = state.nodes.find(n => n.id === state.selectedNode);
+                if (node) {
+                    state.clipboard = { label: node.label, content: node.content || '' };
+                    navigator.clipboard.writeText(node.content || node.label);
+                }
+            }
+            
+            // Paste
+            if (e.ctrlKey && e.key === 'v' && state.selectedNode && !state.editingNode) {
+                const node = state.nodes.find(n => n.id === state.selectedNode);
+                if (node && state.clipboard.content) {
+                    node.content = state.clipboard.content;
+                    node.width = calculateNodeWidth(node.label, node.content, state.MIN_NODE_WIDTH);
+                }
+            }
+
+            // Escape to close edit
+            if (e.key === 'Escape') hideEditOverlay();
+        });
+
+        // ============================================
+        // TOOLBAR
+        // ============================================
+        const buttons = { select: document.getElementById('btnSelect'), pan: document.getElementById('btnPan') };
+        function setMode(mode) {
+            state.mode = mode;
+            Object.values(buttons).forEach(b => b.classList.remove('active'));
+            buttons[mode].classList.add('active');
+        }
+        buttons.select.addEventListener('click', () => setMode('select'));
+        buttons.pan.addEventListener('click', () => setMode('pan'));
+
+        document.getElementById('btnZoomIn').addEventListener('click', () => { state.camera.zoom = Math.min(state.camera.zoom * 1.2, 3); });
+        document.getElementById('btnZoomOut').addEventListener('click', () => { state.camera.zoom = Math.max(state.camera.zoom * 0.8, 0.1); });
+
+        document.getElementById('btnFit').addEventListener('click', () => {
+            if (!state.nodes.length) return;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            state.nodes.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); });
+            const pad = 100;
+            const cw = maxX - minX + pad * 2, ch = maxY - minY + pad * 2;
+            state.camera.zoom = Math.min(state.canvasWidth / cw, state.canvasHeight / ch, 1.5);
+            state.camera.x = -minX * state.camera.zoom + (state.canvasWidth - (maxX - minX) * state.camera.zoom) / 2;
+            state.camera.y = -minY * state.camera.zoom + (state.canvasHeight - (maxY - minY) * state.camera.zoom) / 2;
+        });
+
+        document.getElementById('btnClear').addEventListener('click', () => { if (confirm('Effacer tout ?')) { state.nodes = []; state.connections = []; state.selectedNode = null; } });
+
+        document.getElementById('btnExport').addEventListener('click', () => {
+            const data = { nodes: state.nodes, connections: state.connections, version: '8.0' };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `blitzmax-graph-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+        });
+
+        document.getElementById('btnImport').addEventListener('click', () => document.getElementById('fileInput').click());
+        document.getElementById('fileInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    state.nodes = data.nodes || [];
+                    state.connections = data.connections || [];
+                    state.nextNodeId = Math.max(...state.nodes.map(n => n.id), 0) + 1;
+                    state.nextConnId = Math.max(...state.connections.map(c => c.id), 0) + 1;
+                } catch (err) { alert('Erreur de chargement'); }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+
+        // Code panel
+        document.getElementById('codePanelHeader').addEventListener('click', () => {
+            const panel = document.getElementById('codePanel');
+            panel.classList.toggle('collapsed');
+            document.getElementById('toggleIcon').textContent = panel.classList.contains('collapsed') ? '▶' : '▼';
+        });
+
+        document.getElementById('btnParse').addEventListener('click', () => {
+            const code = document.getElementById('codeInput').value;
+            if (!code.trim()) { alert('Colle du code BlitzMax d\'abord !'); return; }
+            const parsed = parseBlitzMaxCode(code);
+            console.log('Parsed:', parsed);
+            generateNodesFromParsed(parsed);
+            setTimeout(() => document.getElementById('btnFit').click(), 100);
+        });
+
+        // Start
+        render();
+    </script>
+</body>
+</html>
