@@ -427,15 +427,34 @@
                 }
 
                 // Global Function - handle complex return types like :Gui_NodalNet
+                // Also support nested functions (functions inside functions)
                 const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+))?\s*\(([^)]*)\)/i);
-                if (funcMatch && !currentType) {
-                    currentFunction = { name: funcMatch[1], returnType: funcMatch[3] || (funcMatch[2] ? suffixToType(funcMatch[2]) : 'Void'), params: funcMatch[4] || '', code: [] };
+                if (funcMatch && !currentType && !currentFunction) {
+                    // Starting a new top-level function
+                    currentFunction = { name: funcMatch[1], returnType: funcMatch[3] || (funcMatch[2] ? suffixToType(funcMatch[2]) : 'Void'), params: funcMatch[4] || '', code: [], depth: 0 };
                     continue;
                 }
 
-                // End Function
+                // Track nested functions - if we're already in a function and see another Function declaration
+                if (currentFunction && !currentType && funcMatch) {
+                    currentFunction.depth = (currentFunction.depth || 0) + 1;
+                    currentFunction.code.push(line);
+                    continue;
+                }
+
+                // End Function - handle nested function depth
                 if ((upperTrimmed === 'END FUNCTION' || upperTrimmed === 'ENDFUNCTION' || upperTrimmed === 'END') && !currentType) {
-                    if (currentFunction) { result.functions.push(currentFunction); currentFunction = null; }
+                    if (currentFunction) {
+                        if (currentFunction.depth > 0) {
+                            // Closing a nested function, decrease depth
+                            currentFunction.depth--;
+                            currentFunction.code.push(line);
+                        } else {
+                            // Closing the main function
+                            result.functions.push(currentFunction);
+                            currentFunction = null;
+                        }
+                    }
                     continue;
                 }
 
