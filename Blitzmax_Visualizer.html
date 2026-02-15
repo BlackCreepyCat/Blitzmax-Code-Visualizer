@@ -645,6 +645,12 @@
             });
             const globalsNode = state.nodes.find(n => n.nodeType === 'global');
 
+            // Get all custom type names
+            const customTypes = [];
+            state.nodes.filter(n => n.nodeType === 'type').forEach(typeNode => {
+                customTypes.push(typeNode.data.name);
+            });
+
             const builtins = ['Sin','Cos','Abs','Min','Max','Sqrt','Floor','Ceil','Int','Float','String','DrawImage','DrawRect','DrawOval','DrawLine','DrawText','SetColor','SetAlpha','SetBlend','SetScale','SetRotation','LoadImage','Graphics','Flip','Cls','KeyHit','KeyDown','MouseX','MouseY','Print','MilliSecs','Delay','New','Null','Self','Super','Len','Chr','Asc','SeedRnd','Rnd','Rand','For','If','While','Select','Return','Local','EachIn','SetLineWidth','SetViewport','Round','Sqr',
             'CreateList','ListAddLast','ListAddFirst','ListRemove','ListClear','ListContains','ListSort','ClearList',
             'CreateMutex','LockMutex','UnlockMutex','TryLockMutex',
@@ -664,12 +670,12 @@
             'DottedIP']; // Added common BlitzMax functions to avoid false positives
 
             state.nodes.forEach(node => {
-                if (!node.content) return;
+                if (!node.content && !node.label) return;
 
                 // Check global usage
                 if (globalsNode && node.id !== globalsNode.id) {
                     for (const gName of globalNames) {
-                        if (new RegExp(`\\b${gName}\\b`).test(node.content)) {
+                        if (node.content && new RegExp(`\\b${gName}\\b`).test(node.content)) {
                             if (!state.connections.some(c => c.from === globalsNode.id && c.to === node.id && c.type === 'uses')) {
                                 state.connections.push({ id: state.nextConnId++, from: globalsNode.id, to: node.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
                             }
@@ -677,6 +683,29 @@
                         }
                     }
                 }
+
+                // Check custom type usage - in both label (signature) and content (code)
+                for (const typeName of customTypes) {
+                    const typeNode = nodeMap[typeName];
+                    if (!typeNode || typeNode.id === node.id) continue;
+                    
+                    // Check in function/method signature (label) - parameters like (param:TypeName)
+                    if (node.label && new RegExp(`[:(]\\s*${typeName}\\b`).test(node.label)) {
+                        if (!state.connections.some(c => c.from === node.id && c.to === typeNode.id && c.type === 'uses')) {
+                            state.connections.push({ id: state.nextConnId++, from: node.id, to: typeNode.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
+                        }
+                        continue;
+                    }
+                    
+                    // Check in code content - Local var:TypeName, New TypeName, etc.
+                    if (node.content && new RegExp(`\\b(Local|New|:|\\s)${typeName}\\b`).test(node.content)) {
+                        if (!state.connections.some(c => c.from === node.id && c.to === typeNode.id && c.type === 'uses')) {
+                            state.connections.push({ id: state.nextConnId++, from: node.id, to: typeNode.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
+                        }
+                    }
+                }
+
+                if (!node.content) return;
 
                 // Function calls - with parentheses: FunctionName()
                 const callRegex = /\b(\w+)\s*\(/g;
