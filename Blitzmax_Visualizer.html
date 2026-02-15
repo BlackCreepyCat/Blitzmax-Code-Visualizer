@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v8.3</title>
+    <title>BlitzMax NG - Code Visualizer v8.6</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -194,6 +194,59 @@
         .btn.analysis { border-color: var(--purple); color: var(--purple); }
         .btn.analysis:hover { background: rgba(179, 102, 255, 0.3); }
         .btn.analysis.active { background: rgba(179, 102, 255, 0.4); }
+
+        /* Layout Selector */
+        .layout-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .layout-btn {
+            background: rgba(102, 255, 102, 0.1);
+            border: 1px solid var(--green); color: var(--green);
+            padding: 8px 14px; border-radius: 4px; cursor: pointer;
+            font-family: 'Consolas', monospace; font-size: 11px;
+            transition: all 0.2s ease; text-transform: uppercase; letter-spacing: 1px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .layout-btn:hover {
+            background: rgba(102, 255, 102, 0.3);
+            box-shadow: 0 0 15px rgba(102, 255, 102, 0.5);
+        }
+        .layout-btn .arrow { font-size: 8px; }
+        .layout-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 5px;
+            background: rgba(26, 26, 36, 0.98);
+            border: 1px solid var(--green);
+            border-radius: 6px;
+            min-width: 180px;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        .layout-menu.visible { display: block; }
+        .layout-option {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 11px;
+            color: #ccc;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.15s;
+            border-bottom: 1px solid rgba(102, 255, 102, 0.1);
+        }
+        .layout-option:last-child { border-bottom: none; }
+        .layout-option:hover {
+            background: rgba(102, 255, 102, 0.2);
+            color: var(--green);
+        }
+        .layout-option .icon { font-size: 14px; width: 20px; text-align: center; }
+        .layout-option .label { flex: 1; }
+        .layout-option .desc { font-size: 9px; color: #666; }
     </style>
 </head>
 <body>
@@ -207,6 +260,43 @@
             <button class="btn" id="btnZoomIn">🔍+</button>
             <button class="btn" id="btnZoomOut">🔍-</button>
             <button class="btn" id="btnFit">⊡ Fit</button>
+            <div class="divider"></div>
+            <div class="layout-dropdown" id="layoutDropdown">
+                <button class="layout-btn" id="btnLayout">
+                    <span>📐 Layout</span>
+                    <span class="arrow">▼</span>
+                </button>
+                <div class="layout-menu" id="layoutMenu">
+                    <div class="layout-option" data-layout="hierarchical">
+                        <span class="icon">🏛️</span>
+                        <div>
+                            <div class="label">Hierarchical</div>
+                            <div class="desc">Types → Methods → Functions</div>
+                        </div>
+                    </div>
+                    <div class="layout-option" data-layout="force">
+                        <span class="icon">🔮</span>
+                        <div>
+                            <div class="label">Force-Directed</div>
+                            <div class="desc">Physics-based clustering</div>
+                        </div>
+                    </div>
+                    <div class="layout-option" data-layout="columns">
+                        <span class="icon">📊</span>
+                        <div>
+                            <div class="label">Columns</div>
+                            <div class="desc">Organized by category</div>
+                        </div>
+                    </div>
+                    <div class="layout-option" data-layout="grid">
+                        <span class="icon">⊞</span>
+                        <div>
+                            <div class="label">Compact Grid</div>
+                            <div class="desc">Minimize space usage</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="divider"></div>
             <button class="btn" id="btnExport">💾 Export</button>
             <button class="btn" id="btnImport">📂 Import</button>
@@ -436,6 +526,7 @@
             let currentFunction = null;
             let inRemBlock = false;
             let inExternBlock = false;
+            let conditionalDepth = 0; // Track ?Platform ... ? blocks
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -446,22 +537,37 @@
                 if (upperTrimmed === 'END REM' || upperTrimmed === 'ENDREM') { inRemBlock = false; continue; }
                 if (inRemBlock) continue;
                 
-                // Skip Extern blocks (FFI declarations)
+                // Skip Extern blocks (FFI declarations) - handle both EndExtern and End Extern
                 if (upperTrimmed.startsWith('EXTERN')) { inExternBlock = true; continue; }
                 if (upperTrimmed === 'END EXTERN' || upperTrimmed === 'ENDEXTERN') { inExternBlock = false; continue; }
                 if (inExternBlock) continue;
                 
                 // Skip compiler directives and module declarations
+                // Handle both ' and ; as comment markers
                 if (!trimmed || trimmed.startsWith("'") || trimmed.startsWith(';')) continue;
                 if (upperTrimmed.startsWith('MODULE') || upperTrimmed.startsWith('MODULEINFO')) continue;
                 if (upperTrimmed.startsWith('IMPORT') || upperTrimmed.startsWith('INCLUDE')) continue;
                 if (upperTrimmed.startsWith('FRAMEWORK')) continue;
                 if (upperTrimmed === 'STRICT' || upperTrimmed === 'SUPERSTRICT') continue;
                 if (upperTrimmed === 'PRIVATE' || upperTrimmed === 'PUBLIC' || upperTrimmed === 'PROTECTED') continue;
-                if (upperTrimmed.startsWith('?')) continue; // Conditional compilation (?Win32, ?Linux, etc.)
+                
+                // Handle conditional compilation: ?Win32, ?Linux, ?Not, etc.
+                if (trimmed.startsWith('?')) {
+                    // ?End or just ? closes a conditional block
+                    if (upperTrimmed === '?' || upperTrimmed === '?END') {
+                        conditionalDepth = Math.max(0, conditionalDepth - 1);
+                    } else {
+                        // Opening a new conditional block
+                        conditionalDepth++;
+                    }
+                    continue;
+                }
+                
                 if (upperTrimmed.startsWith('DEFDATA') || upperTrimmed.startsWith('#')) continue;
                 
-                const codeOnly = trimmed.split("'")[0].split(";")[0].trim();
+                // Remove comments from code (only ' is a safe end-of-line comment marker)
+                // Note: ; at start of line is a comment, but ; in middle of line is a statement separator
+                let codeOnly = trimmed.split("'")[0].trim();
                 if (!codeOnly) continue;
 
                 // Type declaration
@@ -515,14 +621,14 @@
                     }
 
                     // Function in Type
-                    const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)/i);
+                    const typeFuncMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)(?:\s+\w+)?/i);
                     if (typeFuncMatch && !currentMethod) {
                         currentMethod = { name: typeFuncMatch[1], returnType: typeFuncMatch[3] || (typeFuncMatch[2] ? suffixToType(typeFuncMatch[2]) : 'Void'), params: typeFuncMatch[4] || '', code: [], isFunction: true };
                         continue;
                     }
 
-                    // Method
-                    const methodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)?/i);
+                    // Method - also handle NoDebug attribute
+                    const methodMatch = codeOnly.match(/^Method\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)?(?:\s+\w+)?/i);
                     if (methodMatch && !currentMethod) {
                         currentMethod = { name: methodMatch[1], returnType: methodMatch[3] || (methodMatch[2] ? suffixToType(methodMatch[2]) : 'Void'), params: methodMatch[4] || '', code: [] };
                         continue;
@@ -539,7 +645,8 @@
 
                 // Global Function - handle complex return types like :Gui_NodalNet
                 // Also support nested functions (functions inside functions)
-                const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)/i);
+                // Handle attributes like NoDebug: Function name() NoDebug
+                const funcMatch = codeOnly.match(/^Function\s+(\w+)([%#!$@])?(?:\s*:\s*(\w+(?:\[\])?))?\s*\(([^)]*)\)(?:\s+\w+)?/i);
                 if (funcMatch && !currentType && !currentFunction) {
                     // Starting a new top-level function
                     currentFunction = { name: funcMatch[1], returnType: funcMatch[3] || (funcMatch[2] ? suffixToType(funcMatch[2]) : 'Void'), params: funcMatch[4] || '', code: [], depth: 0 };
@@ -749,6 +856,10 @@
             }
 
             analyzeCallsAndConnect(nodeMap);
+            
+            // Apply default layout: Compact Grid
+            layoutCompactGrid();
+            
             updateStats();
         }
 
@@ -1186,6 +1297,300 @@
         // Get node complexity data
         function getNodeComplexity(nodeId) {
             return state.analysis.complexity.find(c => c.id === nodeId);
+        }
+
+        // ============================================
+        // LAYOUT ALGORITHMS
+        // ============================================
+        
+        function applyLayout(layoutType) {
+            if (state.nodes.length === 0) return;
+            
+            switch(layoutType) {
+                case 'hierarchical':
+                    layoutHierarchical();
+                    break;
+                case 'force':
+                    layoutForceDirected();
+                    break;
+                case 'columns':
+                    layoutColumns();
+                    break;
+                case 'grid':
+                    layoutCompactGrid();
+                    break;
+            }
+            
+            // Fit view after layout
+            setTimeout(() => document.getElementById('btnFit').click(), 50);
+            
+            // Re-run analysis if open
+            if (state.analysis.showAnalysis) {
+                setTimeout(() => runAdvancedAnalysis(), 100);
+            }
+        }
+
+        // Layout 1: Hierarchical - Main/Globals top, Types middle, Functions bottom
+        function layoutHierarchical() {
+            const GAP_X = 60;
+            const GAP_Y = 50;
+            const GROUP_GAP = 120;
+            
+            // Categorize nodes
+            const mainNodes = state.nodes.filter(n => n.nodeType === 'main');
+            const globalNodes = state.nodes.filter(n => n.nodeType === 'global');
+            const typeNodes = state.nodes.filter(n => n.nodeType === 'type');
+            const methodNodes = state.nodes.filter(n => n.nodeType === 'method' || n.nodeType === 'staticfunc');
+            const funcNodes = state.nodes.filter(n => n.nodeType === 'function');
+            
+            let currentY = 80;
+            
+            // Row 1: Main + Globals
+            let rowX = 80;
+            let rowMaxH = 0;
+            [...mainNodes, ...globalNodes].forEach(node => {
+                node.x = rowX;
+                node.y = currentY;
+                rowX += node.width + GAP_X;
+                rowMaxH = Math.max(rowMaxH, node.height);
+            });
+            if (mainNodes.length || globalNodes.length) currentY += rowMaxH + GROUP_GAP;
+            
+            // Row 2+: Types with their methods
+            typeNodes.forEach(typeNode => {
+                typeNode.x = 80;
+                typeNode.y = currentY;
+                
+                // Find methods connected to this type
+                const typeMethods = methodNodes.filter(m => 
+                    state.connections.some(c => c.from === typeNode.id && c.to === m.id)
+                );
+                
+                // Arrange methods in columns to the right
+                let methodX = 80 + typeNode.width + GAP_X;
+                let methodY = currentY;
+                let colMaxW = 0;
+                let maxY = currentY + typeNode.height;
+                const methodsPerCol = Math.ceil(typeMethods.length / 2);
+                
+                typeMethods.forEach((method, idx) => {
+                    method.x = methodX;
+                    method.y = methodY;
+                    colMaxW = Math.max(colMaxW, method.width);
+                    methodY += method.height + GAP_Y;
+                    maxY = Math.max(maxY, methodY);
+                    
+                    if ((idx + 1) === methodsPerCol && typeMethods.length > 2) {
+                        methodX += colMaxW + GAP_X;
+                        methodY = currentY;
+                        colMaxW = 0;
+                    }
+                });
+                
+                currentY = maxY + GROUP_GAP;
+            });
+            
+            // Final rows: Standalone functions (grid)
+            const standaloneFuncs = funcNodes.filter(f => 
+                !state.connections.some(c => c.to === f.id && state.nodes.find(n => n.id === c.from)?.nodeType === 'type')
+            );
+            
+            if (standaloneFuncs.length > 0) {
+                const GRID_COLS = Math.min(4, Math.ceil(Math.sqrt(standaloneFuncs.length)));
+                const colHeights = new Array(GRID_COLS).fill(0);
+                
+                standaloneFuncs.forEach(func => {
+                    let minCol = 0;
+                    for (let i = 1; i < GRID_COLS; i++) {
+                        if (colHeights[i] < colHeights[minCol]) minCol = i;
+                    }
+                    
+                    func.x = 80 + minCol * 400;
+                    func.y = currentY + colHeights[minCol];
+                    colHeights[minCol] += func.height + GAP_Y;
+                });
+            }
+        }
+
+        // Layout 2: Force-Directed (Physics simulation)
+        function layoutForceDirected() {
+            const iterations = 100;
+            const repulsion = 50000;
+            const attraction = 0.005;
+            const damping = 0.85;
+            const minDistance = 150;
+            
+            // Initialize velocities
+            const velocities = new Map();
+            state.nodes.forEach(n => velocities.set(n.id, { vx: 0, vy: 0 }));
+            
+            // Center of canvas
+            const centerX = 800;
+            const centerY = 600;
+            
+            // Spread nodes initially if they're stacked
+            state.nodes.forEach((node, i) => {
+                const angle = (i / state.nodes.length) * Math.PI * 2;
+                const radius = 300 + Math.random() * 200;
+                node.x = centerX + Math.cos(angle) * radius;
+                node.y = centerY + Math.sin(angle) * radius;
+            });
+            
+            for (let iter = 0; iter < iterations; iter++) {
+                // Calculate forces
+                state.nodes.forEach(node => {
+                    let fx = 0, fy = 0;
+                    const vel = velocities.get(node.id);
+                    
+                    // Repulsion from other nodes
+                    state.nodes.forEach(other => {
+                        if (other.id === node.id) return;
+                        const dx = node.x - other.x;
+                        const dy = node.y - other.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                        const force = repulsion / (dist * dist);
+                        fx += (dx / dist) * force;
+                        fy += (dy / dist) * force;
+                    });
+                    
+                    // Attraction along connections
+                    state.connections.forEach(conn => {
+                        let other = null;
+                        if (conn.from === node.id) other = state.nodes.find(n => n.id === conn.to);
+                        else if (conn.to === node.id) other = state.nodes.find(n => n.id === conn.from);
+                        
+                        if (other) {
+                            const dx = other.x - node.x;
+                            const dy = other.y - node.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                            // Stronger attraction for 'contains' connections
+                            const strength = conn.type === 'contains' ? attraction * 3 : attraction;
+                            fx += dx * strength;
+                            fy += dy * strength;
+                        }
+                    });
+                    
+                    // Gentle pull toward center
+                    fx += (centerX - node.x) * 0.0001;
+                    fy += (centerY - node.y) * 0.0001;
+                    
+                    // Update velocity
+                    vel.vx = (vel.vx + fx) * damping;
+                    vel.vy = (vel.vy + fy) * damping;
+                });
+                
+                // Apply velocities
+                state.nodes.forEach(node => {
+                    const vel = velocities.get(node.id);
+                    node.x += vel.vx;
+                    node.y += vel.vy;
+                });
+            }
+            
+            // Normalize positions (move to positive coordinates)
+            let minX = Infinity, minY = Infinity;
+            state.nodes.forEach(n => {
+                minX = Math.min(minX, n.x);
+                minY = Math.min(minY, n.y);
+            });
+            state.nodes.forEach(n => {
+                n.x -= minX - 100;
+                n.y -= minY - 100;
+            });
+        }
+
+        // Layout 3: Columns by category
+        function layoutColumns() {
+            const GAP_X = 80;
+            const GAP_Y = 40;
+            const COL_WIDTH = 400;
+            const START_X = 80;
+            const START_Y = 80;
+            
+            // Define columns
+            const columns = [
+                { title: 'Main/Globals', types: ['main', 'global'], nodes: [] },
+                { title: 'Types', types: ['type'], nodes: [] },
+                { title: 'Methods', types: ['method', 'staticfunc'], nodes: [] },
+                { title: 'Functions', types: ['function'], nodes: [] }
+            ];
+            
+            // Categorize nodes
+            state.nodes.forEach(node => {
+                for (const col of columns) {
+                    if (col.types.includes(node.nodeType)) {
+                        col.nodes.push(node);
+                        break;
+                    }
+                }
+            });
+            
+            // Sort methods by their parent type
+            columns[2].nodes.sort((a, b) => {
+                const aParent = state.connections.find(c => c.to === a.id && c.type === 'contains');
+                const bParent = state.connections.find(c => c.to === b.id && c.type === 'contains');
+                const aParentId = aParent ? aParent.from : 0;
+                const bParentId = bParent ? bParent.from : 0;
+                return aParentId - bParentId;
+            });
+            
+            // Position nodes in columns
+            columns.forEach((col, colIdx) => {
+                let y = START_Y;
+                col.nodes.forEach(node => {
+                    node.x = START_X + colIdx * (COL_WIDTH + GAP_X);
+                    node.y = y;
+                    // Resize to fit column
+                    node.width = Math.min(node.width, COL_WIDTH - 20);
+                    y += node.height + GAP_Y;
+                });
+            });
+        }
+
+        // Layout 4: Compact Grid
+        function layoutCompactGrid() {
+            const GAP = 40;
+            const START_X = 80;
+            const START_Y = 80;
+            
+            // Sort nodes: Main first, then Globals, Types, Methods, Functions
+            const sortOrder = { main: 0, global: 1, type: 2, staticfunc: 3, method: 4, function: 5 };
+            const sortedNodes = [...state.nodes].sort((a, b) => 
+                (sortOrder[a.nodeType] || 99) - (sortOrder[b.nodeType] || 99)
+            );
+            
+            // Calculate optimal grid columns based on total area
+            const totalWidth = sortedNodes.reduce((sum, n) => sum + n.width, 0);
+            const avgWidth = totalWidth / sortedNodes.length;
+            const targetAspect = 16 / 9; // Wide layout
+            const cols = Math.ceil(Math.sqrt(sortedNodes.length * targetAspect));
+            
+            // Use bin packing algorithm (simple shelf algorithm)
+            const shelves = [{ y: START_Y, height: 0, x: START_X }];
+            
+            sortedNodes.forEach(node => {
+                // Find a shelf that fits
+                let placed = false;
+                for (const shelf of shelves) {
+                    if (shelf.x + node.width < 2000) { // Max width
+                        node.x = shelf.x;
+                        node.y = shelf.y;
+                        shelf.x += node.width + GAP;
+                        shelf.height = Math.max(shelf.height, node.height);
+                        placed = true;
+                        break;
+                    }
+                }
+                
+                if (!placed) {
+                    // Create new shelf
+                    const lastShelf = shelves[shelves.length - 1];
+                    const newY = lastShelf.y + lastShelf.height + GAP;
+                    shelves.push({ y: newY, height: node.height, x: START_X + node.width + GAP });
+                    node.x = START_X;
+                    node.y = newY;
+                }
+            });
         }
 
         // ============================================
@@ -1774,8 +2179,34 @@
             state.analysis.showAnalysis = false;
         });
 
+        // Layout dropdown
+        const layoutBtn = document.getElementById('btnLayout');
+        const layoutMenu = document.getElementById('layoutMenu');
+        const layoutDropdown = document.getElementById('layoutDropdown');
+        
+        layoutBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            layoutMenu.classList.toggle('visible');
+        });
+        
+        document.querySelectorAll('.layout-option').forEach(option => {
+            option.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const layoutType = option.dataset.layout;
+                applyLayout(layoutType);
+                layoutMenu.classList.remove('visible');
+            });
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!layoutDropdown.contains(e.target)) {
+                layoutMenu.classList.remove('visible');
+            }
+        });
+
         document.getElementById('btnExport').addEventListener('click', () => {
-            const data = { nodes: state.nodes, connections: state.connections, version: '8.3' };
+            const data = { nodes: state.nodes, connections: state.connections, version: '8.6' };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
