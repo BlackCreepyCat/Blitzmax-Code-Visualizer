@@ -2034,45 +2034,83 @@
             ctx.fillText(title, scr.x + 10, scr.y + titleH / 2);
             ctx.restore();
 
-            // Content
-            if (node.content) {
-                ctx.save();
-                const fs = Math.max(10 * state.camera.zoom, 8);
-                ctx.font = `${fs}px Consolas, monospace`;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'top';
-                const lines = node.content.split('\n');
-                const lineH = state.LINE_HEIGHT * state.camera.zoom;
-                const startY = scr.y + titleH + 8 * state.camera.zoom;
-                const maxLines = Math.floor((h - titleH - 16 * state.camera.zoom) / lineH);
-                const contentMaxW = w - 16;
+			// Content
+			if (node.content) {
+				ctx.save();
+				const fs = Math.max(10 * state.camera.zoom, 8);
+				ctx.font = `${fs}px Consolas, monospace`;
+				ctx.textAlign = 'left';
+				ctx.textBaseline = 'top';
+				const lines = node.content.split('\n');
+				const lineH = state.LINE_HEIGHT * state.camera.zoom;
+				const startY = scr.y + titleH + 8 * state.camera.zoom;
+				const maxLines = Math.floor((h - titleH - 16 * state.camera.zoom) / lineH);
+				const contentMaxW = w - 16;
 
-                lines.slice(0, maxLines).forEach((line, i) => {
-                    // Different colors for different variable types
-                    if (line.match(/^Const\s/i)) {
-                        ctx.fillStyle = '#00d4ff'; // Cyan for Const
-                    } else if (line.match(/^Global\s/i)) {
-                        ctx.fillStyle = '#ff9933'; // Orange for Global
-                    } else if (line.match(/^Local\s/i)) {
-                        ctx.fillStyle = '#66ff66'; // Green for Local
-                    } else if (line.match(/^Field\s/i)) {
-                        ctx.fillStyle = '#b366ff'; // Purple for Field
-                    } else if (line.match(/^(Return|If|For|While|Select|Repeat)\b/i)) {
-                        ctx.fillStyle = '#ff9933'; // Orange for control flow
-                    } else {
-                        ctx.fillStyle = '#ccc'; // Default gray
-                    }
-                    let displayLine = line;
-                    while (ctx.measureText(displayLine).width > contentMaxW && displayLine.length > 3) displayLine = displayLine.slice(0, -1);
-                    if (displayLine !== line) displayLine += '…';
-                    ctx.fillText(displayLine, scr.x + 8, startY + i * lineH);
-                });
-                if (lines.length > maxLines) {
-                    ctx.fillStyle = '#666';
-                    ctx.fillText(`... (+${lines.length - maxLines})`, scr.x + 8, startY + maxLines * lineH);
-                }
-                ctx.restore();
-            }
+				// Liste des keywords BlitzMax NG (ajoutez-en si besoin, case-insensitive)
+				const keywords = ['Function', 'Method', 'Type', 'End', 'If', 'Then', 'Else', 'ElseIf', 'EndIf', 'For', 'To', 'Step', 'Next', 'While', 'Wend', 'Repeat', 'Until', 'Forever', 'Select', 'Case', 'Default', 'EndSelect', 'Return', 'Local', 'Global', 'Const', 'Field', 'New', 'Null', 'Self', 'Super', 'And', 'Or', 'Not', 'Mod', 'Shl', 'Shr', 'Abstract', 'Final', 'EachIn', 'Exit', 'Continue', 'Strict', 'SuperStrict', 'Private', 'Public', 'Protected', 'Var', 'Ptr'];
+				const keywordRegex = new RegExp(`\\b(${keywords.join('|')})\\b`, 'gi');  // Global, case-insensitive
+
+				lines.slice(0, maxLines).forEach((line, i) => {
+					let currentX = scr.x + 8;
+					let remainingLine = line;
+					let match;
+
+					// Couleur par défaut pour la ligne (gardez la logique existante pour surcharger par type de ligne)
+					let defaultColor = '#ccc';
+					if (line.match(/^Const\s/i)) defaultColor = '#00d4ff';
+					else if (line.match(/^Global\s/i)) defaultColor = '#ff9933';
+					else if (line.match(/^Local\s/i)) defaultColor = '#66ff66';
+					else if (line.match(/^Field\s/i)) defaultColor = '#b366ff';
+					else if (line.match(/^(Return|If|For|While|Select|Repeat)\b/i)) defaultColor = '#ff9933';
+
+					while ((match = keywordRegex.exec(remainingLine)) !== null) {
+						const before = remainingLine.substring(0, match.index);
+						const keyword = match[0];
+
+						// Dessiner le texte avant le keyword
+						if (before) {
+							ctx.fillStyle = defaultColor;
+							let displayBefore = before;
+							const beforeWidth = ctx.measureText(displayBefore).width;
+							if (currentX + beforeWidth > scr.x + contentMaxW) {
+								displayBefore = displayBefore.slice(0, -1);  // Tronquer si trop long
+							}
+							ctx.fillText(displayBefore, currentX, startY + i * lineH);
+							currentX += ctx.measureText(displayBefore).width;
+						}
+
+						// Dessiner le keyword en violet (ou autre couleur, ex. #b366ff pour purple)
+						ctx.fillStyle = '#b366ff';  // Couleur pour keywords
+						let displayKeyword = keyword;
+						const keywordWidth = ctx.measureText(displayKeyword).width;
+						if (currentX + keywordWidth > scr.x + contentMaxW) {
+							displayKeyword = displayKeyword.slice(0, -1);
+						}
+						ctx.fillText(displayKeyword, currentX, startY + i * lineH);
+						currentX += keywordWidth;
+
+						// Continuer avec le reste
+						remainingLine = remainingLine.substring(match.index + keyword.length);
+					}
+
+					// Dessiner le reste de la ligne
+					if (remainingLine) {
+						ctx.fillStyle = defaultColor;
+						let displayRemaining = remainingLine;
+						const remainingWidth = ctx.measureText(displayRemaining).width;
+						if (currentX + remainingWidth > scr.x + contentMaxW) {
+							displayRemaining = displayRemaining.slice(0, -1) + '…';
+						}
+						ctx.fillText(displayRemaining, currentX, startY + i * lineH);
+					}
+				});
+				if (lines.length > maxLines) {
+					ctx.fillStyle = '#666';
+					ctx.fillText(`... (+${lines.length - maxLines})`, scr.x + 8, startY + maxLines * lineH);
+				}
+				ctx.restore();
+			}
         }
 
         function adjustColor(hex, amt) {
