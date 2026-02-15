@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v8</title>
+    <title>BlitzMax NG - Code Visualizer v8.1</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -165,12 +165,12 @@
 
         <div class="code-panel" id="codePanel">
             <div class="code-header" id="codePanelHeader">
-                <h3>📝 CODE BLITZMAX</h3>
+                <h3>📝 BLITZMAX CODE</h3>
                 <span id="toggleIcon">▼</span>
             </div>
             <div class="code-content">
-                <textarea id="codeInput" placeholder="Colle ton code BlitzMax NG ici..."></textarea>
-                <button class="parse-btn" id="btnParse">⚡ ANALYSER LE CODE</button>
+                <textarea id="codeInput" placeholder="Paste your BlitzMax NG code here..."></textarea>
+                <button class="parse-btn" id="btnParse">⚡ PARSE CODE</button>
             </div>
         </div>
 
@@ -179,12 +179,12 @@
 
         <!-- Edit overlay -->
         <div id="nodeEditOverlay">
-            <h4 id="editTitle">Éditer le node</h4>
-            <input type="text" id="editLabelInput" placeholder="Titre du node">
-            <textarea id="editContentInput" placeholder="Contenu du node"></textarea>
+            <h4 id="editTitle">Edit Node</h4>
+            <input type="text" id="editLabelInput" placeholder="Node title">
+            <textarea id="editContentInput" placeholder="Node content"></textarea>
             <div class="edit-buttons">
-                <button class="btn-save" id="btnSaveEdit">✓ Sauver</button>
-                <button class="btn-cancel" id="btnCancelEdit">✗ Annuler</button>
+                <button class="btn-save" id="btnSaveEdit">✓ Save</button>
+                <button class="btn-cancel" id="btnCancelEdit">✗ Cancel</button>
             </div>
         </div>
 
@@ -196,20 +196,20 @@
             <div class="legend-item"><div class="legend-color" style="background: #22cc88;"></div><span>Function (static)</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #66ff66;"></div><span>Function</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #ff9933;"></div><span>Globals</span></div>
-            <div style="color: var(--cyan); font-weight: bold; margin: 10px 0 8px 0;">LIENS</div>
-            <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Appel</span></div>
+            <div style="color: var(--cyan); font-weight: bold; margin: 10px 0 8px 0;">CONNECTIONS</div>
+            <div class="legend-item"><div class="legend-color" style="background: #00d4ff;"></div><span>Call</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #ffdd44;"></div><span>Variable</span></div>
             <div class="legend-item"><div class="legend-color" style="background: #b366ff;"></div><span>Extends</span></div>
         </div>
 
         <div class="info-panel">
-            <div>🖱️ <strong>DRAG</strong> titre → déplacer</div>
-            <div>📐 <strong>DRAG</strong> coins → resize</div>
-            <div>✏️ <strong>DOUBLE-CLIC</strong> → éditer</div>
-            <div>📋 <strong>CTRL+C/V</strong> → copier/coller</div>
-            <div>🔍 <strong>MOLETTE</strong> → zoom</div>
-            <div>✋ <strong>CLIC DROIT</strong> → pan</div>
-            <div>🗑️ <strong>SUPPR</strong> → supprimer</div>
+            <div>🖱️ <strong>DRAG</strong> title → move</div>
+            <div>📐 <strong>DRAG</strong> corners → resize</div>
+            <div>✏️ <strong>DOUBLE-CLICK</strong> → edit</div>
+            <div>📋 <strong>CTRL+C/V</strong> → copy/paste</div>
+            <div>🔍 <strong>WHEEL</strong> → zoom</div>
+            <div>✋ <strong>RIGHT CLICK</strong> → pan</div>
+            <div>🗑️ <strong>DELETE</strong> → remove</div>
         </div>
 
         <div class="stats">
@@ -307,6 +307,7 @@
             let currentMethod = null;
             let currentFunction = null;
             let inRemBlock = false;
+            let inExternBlock = false;
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -316,10 +317,23 @@
                 if (upperTrimmed.startsWith('REM')) { inRemBlock = true; continue; }
                 if (upperTrimmed === 'END REM' || upperTrimmed === 'ENDREM') { inRemBlock = false; continue; }
                 if (inRemBlock) continue;
-                if (!trimmed || trimmed.startsWith("'")) continue;
+                
+                // Skip Extern blocks (FFI declarations)
+                if (upperTrimmed.startsWith('EXTERN')) { inExternBlock = true; continue; }
+                if (upperTrimmed === 'END EXTERN' || upperTrimmed === 'ENDEXTERN') { inExternBlock = false; continue; }
+                if (inExternBlock) continue;
+                
+                // Skip compiler directives and module declarations
+                if (!trimmed || trimmed.startsWith("'") || trimmed.startsWith(';')) continue;
+                if (upperTrimmed.startsWith('MODULE') || upperTrimmed.startsWith('MODULEINFO')) continue;
+                if (upperTrimmed.startsWith('IMPORT') || upperTrimmed.startsWith('INCLUDE')) continue;
+                if (upperTrimmed.startsWith('FRAMEWORK')) continue;
+                if (upperTrimmed === 'STRICT' || upperTrimmed === 'SUPERSTRICT') continue;
+                if (upperTrimmed === 'PRIVATE' || upperTrimmed === 'PUBLIC' || upperTrimmed === 'PROTECTED') continue;
+                if (upperTrimmed.startsWith('?')) continue; // Conditional compilation (?Win32, ?Linux, etc.)
                 if (upperTrimmed.startsWith('DEFDATA') || upperTrimmed.startsWith('#')) continue;
                 
-                const codeOnly = trimmed.split("'")[0].trim();
+                const codeOnly = trimmed.split("'")[0].split(";")[0].trim();
                 if (!codeOnly) continue;
 
                 // Type declaration
@@ -1207,7 +1221,7 @@
             state.camera.y = -minY * state.camera.zoom + (state.canvasHeight - (maxY - minY) * state.camera.zoom) / 2;
         });
 
-        document.getElementById('btnClear').addEventListener('click', () => { if (confirm('Effacer tout ?')) { state.nodes = []; state.connections = []; state.selectedNode = null; } });
+        document.getElementById('btnClear').addEventListener('click', () => { if (confirm('Clear everything?')) { state.nodes = []; state.connections = []; state.selectedNode = null; } });
 
         document.getElementById('btnExport').addEventListener('click', () => {
             const data = { nodes: state.nodes, connections: state.connections, version: '8.0' };
@@ -1230,7 +1244,7 @@
                     state.connections = data.connections || [];
                     state.nextNodeId = Math.max(...state.nodes.map(n => n.id), 0) + 1;
                     state.nextConnId = Math.max(...state.connections.map(c => c.id), 0) + 1;
-                } catch (err) { alert('Erreur de chargement'); }
+                } catch (err) { alert('Loading error'); }
             };
             reader.readAsText(file);
             e.target.value = '';
@@ -1245,7 +1259,7 @@
 
         document.getElementById('btnParse').addEventListener('click', () => {
             const code = document.getElementById('codeInput').value;
-            if (!code.trim()) { alert('Colle du code BlitzMax d\'abord !'); return; }
+            if (!code.trim()) { alert('Paste BlitzMax code first!'); return; }
             const parsed = parseBlitzMaxCode(code);
             console.log('Parsed:', parsed);
             generateNodesFromParsed(parsed);
