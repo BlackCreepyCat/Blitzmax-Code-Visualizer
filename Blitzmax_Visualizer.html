@@ -558,7 +558,7 @@
                 const typeW = calculateNodeWidth(type.name, typeContent, 250);
                 const typeH = state.TITLE_BAR_HEIGHT + Math.max(allLines.length * state.LINE_HEIGHT + 20, 80);
 
-                const typeNode = { id: state.nextNodeId++, x: 80, y: currentY, width: typeW, height: typeH, label: type.name + (type.extends ? ` ◀ ${type.extends}` : ''), content: typeContent, nodeType: 'type', color: state.colors.type, data: type };
+                const typeNode = { id: state.nextNodeId++, x: 80, y: currentY, width: typeW, height: typeH, label: '📦 Type ' + type.name + (type.extends ? ` ◀ ${type.extends}` : ''), content: typeContent, nodeType: 'type', color: state.colors.type, data: type };
                 state.nodes.push(typeNode);
                 nodeMap[type.name] = typeNode;
 
@@ -572,7 +572,7 @@
                 type.methods.forEach((method, idx) => {
                     const codeLines = method.code.filter(l => l.trim());
                     const codeContent = codeLines.map(l => l.trim()).join('\n');
-                    const prefix = method.isFunction ? 'Function ' : 'Method ';
+                    const prefix = method.isFunction ? '⚙️ Function ' : '🔧 Method ';
                     const suffix = method.isAbstract ? ' [Abstract]' : '';
                     const sig = `${prefix}${method.name}(${method.params})${method.returnType !== 'Void' ? ':' + method.returnType : ''}${suffix}`;
                     const methodW = calculateNodeWidth(sig, codeContent, 280);
@@ -615,7 +615,7 @@
                 parsed.functions.forEach(func => {
                     const codeLines = func.code.filter(l => l.trim());
                     const codeContent = codeLines.map(l => l.trim()).join('\n');
-                    const sig = `${func.name}(${func.params})${func.returnType !== 'Void' ? ':' + func.returnType : ''}`;
+                    const sig = `⚡ Function ${func.name}(${func.params})${func.returnType !== 'Void' ? ':' + func.returnType : ''}`;
                     const funcW = calculateNodeWidth(sig, codeContent, 300);
                     const funcH = state.TITLE_BAR_HEIGHT + Math.max(codeLines.length * state.LINE_HEIGHT + 20, 60);
 
