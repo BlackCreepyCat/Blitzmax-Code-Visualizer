@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v8.1</title>
+    <title>BlitzMax NG - Code Visualizer v8.3</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -144,6 +144,56 @@
         .cursor-grab { cursor: grab; }
         .cursor-grabbing { cursor: grabbing; }
         .cursor-text { cursor: text; }
+
+        /* Analysis Panel */
+        .analysis-panel {
+            position: absolute; top: 70px; right: 250px;
+            background: rgba(26, 26, 36, 0.98);
+            border: 2px solid var(--purple); border-radius: 8px;
+            z-index: 100; min-width: 280px; max-width: 350px;
+            box-shadow: 0 0 30px rgba(179, 102, 255, 0.3);
+            display: none;
+        }
+        .analysis-panel.visible { display: block; }
+        .analysis-header {
+            padding: 10px 15px; background: rgba(179, 102, 255, 0.2);
+            border-bottom: 1px solid var(--purple);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .analysis-header h3 { font-size: 12px; color: var(--purple); letter-spacing: 2px; }
+        .analysis-content { padding: 12px; max-height: 400px; overflow-y: auto; }
+        .analysis-section { margin-bottom: 15px; }
+        .analysis-section h4 { 
+            font-size: 11px; color: var(--cyan); margin-bottom: 8px; 
+            display: flex; align-items: center; gap: 6px;
+        }
+        .analysis-item {
+            font-size: 10px; padding: 6px 8px; margin: 4px 0;
+            background: rgba(0, 0, 0, 0.3); border-radius: 4px;
+            border-left: 3px solid #444; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .analysis-item:hover { background: rgba(0, 212, 255, 0.1); }
+        .analysis-item.cycle { border-left-color: #ff4444; }
+        .analysis-item.recursive { border-left-color: #ff9933; }
+        .analysis-item.orphan { border-left-color: #888; }
+        .analysis-item.complex { border-left-color: #ffdd44; }
+        .analysis-badge {
+            display: inline-block; padding: 2px 6px; border-radius: 3px;
+            font-size: 9px; font-weight: bold; margin-left: 6px;
+        }
+        .badge-danger { background: rgba(255, 68, 68, 0.3); color: #ff6666; }
+        .badge-warning { background: rgba(255, 153, 51, 0.3); color: #ffaa55; }
+        .badge-info { background: rgba(0, 212, 255, 0.3); color: #66e0ff; }
+        .badge-muted { background: rgba(136, 136, 136, 0.3); color: #aaa; }
+        .analysis-empty { color: #666; font-style: italic; font-size: 10px; }
+        .complexity-bar {
+            height: 4px; background: #333; border-radius: 2px; margin-top: 4px; overflow: hidden;
+        }
+        .complexity-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+        .btn.analysis { border-color: var(--purple); color: var(--purple); }
+        .btn.analysis:hover { background: rgba(179, 102, 255, 0.3); }
+        .btn.analysis.active { background: rgba(179, 102, 255, 0.4); }
     </style>
 </head>
 <body>
@@ -160,6 +210,8 @@
             <div class="divider"></div>
             <button class="btn" id="btnExport">💾 Export</button>
             <button class="btn" id="btnImport">📂 Import</button>
+            <div class="divider"></div>
+            <button class="btn analysis" id="btnAnalysis">🔬 Analysis</button>
             <button class="btn delete" id="btnClear">🗑️ Clear</button>
         </div>
 
@@ -212,6 +264,32 @@
             <div>🗑️ <strong>DELETE</strong> → remove</div>
         </div>
 
+        <!-- Analysis Panel -->
+        <div class="analysis-panel" id="analysisPanel">
+            <div class="analysis-header">
+                <h3>🔬 CODE ANALYSIS</h3>
+                <span id="analysisClose" style="cursor:pointer; color:#888;">✕</span>
+            </div>
+            <div class="analysis-content">
+                <div class="analysis-section">
+                    <h4>🔄 Cycles Detected <span class="analysis-badge badge-danger" id="cycleCount">0</span></h4>
+                    <div id="cyclesList"></div>
+                </div>
+                <div class="analysis-section">
+                    <h4>♻️ Recursive Calls <span class="analysis-badge badge-warning" id="recursiveCount">0</span></h4>
+                    <div id="recursiveList"></div>
+                </div>
+                <div class="analysis-section">
+                    <h4>👻 Orphan Functions <span class="analysis-badge badge-muted" id="orphanCount">0</span></h4>
+                    <div id="orphanList"></div>
+                </div>
+                <div class="analysis-section">
+                    <h4>📊 Complexity Ranking <span class="analysis-badge badge-info" id="complexCount">0</span></h4>
+                    <div id="complexityList"></div>
+                </div>
+            </div>
+        </div>
+
         <div class="stats">
             <div>MAIN: <span class="stats-value" id="mainCount">0</span></div>
             <div>TYPES: <span class="stats-value" id="typeCount">0</span></div>
@@ -249,6 +327,15 @@
             // Editing
             editingNode: null,
             clipboard: { label: '', content: '' },
+            
+            // Analysis
+            analysis: {
+                cycles: [],
+                recursive: [],
+                orphans: [],
+                complexity: [],
+                showAnalysis: false
+            },
             
             // Constants
             TITLE_BAR_HEIGHT: 28,
@@ -668,8 +755,8 @@
         function analyzeCallsAndConnect(nodeMap) {
             const globalNames = [];
             state.nodes.filter(n => n.nodeType === 'global').forEach(gn => {
-                if (gn.data.globals) gn.data.globals.forEach(g => globalNames.push(g.name));
-                if (gn.data.consts) gn.data.consts.forEach(c => globalNames.push(c.name));
+                if (gn.data.globals) gn.data.globals.forEach(g => globalNames.push(g.name.toLowerCase()));
+                if (gn.data.consts) gn.data.consts.forEach(c => globalNames.push(c.name.toLowerCase()));
             });
             const globalsNode = state.nodes.find(n => n.nodeType === 'global');
 
@@ -685,7 +772,7 @@
             'CreateTCPSocket','CreateUDPSocket','BindSocket','SocketListen','SocketAccept','SocketConnect','SocketConnected','CloseSocket','SocketRemoteIP','SocketLocalIP','SocketRemotePort','SocketLocalPort',
             'CreateSocketStream','ReadLine','WriteLine','ReadString','WriteString','ReadByte','WriteByte','ReadShort','WriteShort','ReadInt','WriteInt','WriteFloat','ReadFloat','CloseStream','Eof','StreamPos','SeekStream',
             'CreateThread','ThreadRunning','WaitThread','DetachThread','ThreadID',
-            'CreateBank','BankSize','ResizeBank','CopyBank','PeekByte','PokeByte','PeekShort','PokeShort','PeekInt','PokeInt','ReadBank','WriteBank',
+            'CreateBank','BankSize','ResizeBank','CopyBank','PeekByte','PokeByte','PeekShort','PokeShort','PeekInt','PokeInt','ReadBank','WriteBank','BankBuf',
             'Replace','Left','Right','Mid','Instr','Upper','Lower','Trim','LTrim','RTrim','LSet','RSet','Hex','Bin',
             'FileType','FileSize','FileTime','FileMode','CreateFile','ReadFile','WriteFile','OpenFile','CloseFile','SeekFile','ReadDir','CloseDir','NextFile','CurrentDir','CreateDir','DeleteDir','DeleteFile','CopyFile','RenameFile','ChangeDir','RealPath','StripDir','StripExt','StripAll','ExtractDir','ExtractExt',
             'RuntimeError','DebugLog','DebugStop','Assert','End',
@@ -695,15 +782,15 @@
             'AppTitle','AppFile','AppDir','LaunchDir','CommandLine','SystemProperty',
             'CurrentTime','CurrentDate','LoadText','SaveText','Confirm','Notify','Proceed','RequestFile','RequestDir',
             'TStream','TBank','TList','TMap','TSocket','TThread','TMutex','TImage','TPixmap','TAudioSample',
-            'DottedIP']; // Added common BlitzMax functions to avoid false positives
+            'DottedIP','MemCopy','MemCopy2','Varptr','SizeOf','ToCString','FromCString']; // Added more BlitzMax functions
 
             state.nodes.forEach(node => {
                 if (!node.content && !node.label) return;
 
-                // Check global usage
+                // Check global usage (case-insensitive)
                 if (globalsNode && node.id !== globalsNode.id) {
                     for (const gName of globalNames) {
-                        if (node.content && new RegExp(`\\b${gName}\\b`).test(node.content)) {
+                        if (node.content && new RegExp(`\\b${gName}\\b`, 'i').test(node.content)) {
                             if (!state.connections.some(c => c.from === globalsNode.id && c.to === node.id && c.type === 'uses')) {
                                 state.connections.push({ id: state.nextConnId++, from: globalsNode.id, to: node.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
                             }
@@ -713,20 +800,22 @@
                 }
 
                 // Check custom type usage - in both label (signature) and content (code)
+                // BlitzMax is case-insensitive, so we use 'i' flag in regex
                 for (const typeName of customTypes) {
                     const typeNode = nodeMap[typeName];
                     if (!typeNode || typeNode.id === node.id) continue;
                     
-                    // Check in function/method signature (label) - parameters like (param:TypeName)
-                    if (node.label && new RegExp(`[:(]\\s*${typeName}\\b`).test(node.label)) {
+                    // Check in function/method signature (label) - parameters like (param:TypeName) or (param:TypeName Var)
+                    if (node.label && new RegExp(`[:(]\\s*${typeName}\\b`, 'i').test(node.label)) {
                         if (!state.connections.some(c => c.from === node.id && c.to === typeNode.id && c.type === 'uses')) {
                             state.connections.push({ id: state.nextConnId++, from: node.id, to: typeNode.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
                         }
                         continue;
                     }
                     
-                    // Check in code content - Local var:TypeName, New TypeName, etc.
-                    if (node.content && new RegExp(`\\b(Local|New|:|\\s)${typeName}\\b`).test(node.content)) {
+                    // Check in code content - Local var:TypeName, New TypeName, TypeName(, :TypeName, etc.
+                    // Also handle Var keyword: param:TypeName Var
+                    if (node.content && new RegExp(`\\b(Local|New|:|,\\s*)${typeName}\\b`, 'i').test(node.content)) {
                         if (!state.connections.some(c => c.from === node.id && c.to === typeNode.id && c.type === 'uses')) {
                             state.connections.push({ id: state.nextConnId++, from: node.id, to: typeNode.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'uses' });
                         }
@@ -741,7 +830,9 @@
                 while ((match = callRegex.exec(node.content)) !== null) {
                     const name = match[1];
                     if (builtins.some(b => b.toLowerCase() === name.toLowerCase())) continue;
-                    const target = nodeMap[name];
+                    // Case-insensitive lookup in nodeMap
+                    const targetKey = Object.keys(nodeMap).find(k => k.toLowerCase() === name.toLowerCase());
+                    const target = targetKey ? nodeMap[targetKey] : null;
                     if (target && target.id !== node.id && target.nodeType !== 'global') {
                         if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
                             state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
@@ -751,7 +842,7 @@
 
                 // Function calls without parentheses - BlitzMax style: FunctionName param
                 // Match: word followed by space and another word/variable (not keywords or operators)
-                const keywords = ['if','then','else','elseif','endif','for','to','step','next','while','wend','repeat','until','forever','select','case','default','endselect','return','local','global','const','field','method','function','endmethod','endfunction','type','endtype','end','new','null','self','super','and','or','not','mod','shl','shr','abstract','final','eachin','exit','continue','strict','superstrict','private','public','protected'];
+                const keywords = ['if','then','else','elseif','endif','for','to','step','next','while','wend','repeat','until','forever','select','case','default','endselect','return','local','global','const','field','method','function','endmethod','endfunction','type','endtype','end','new','null','self','super','and','or','not','mod','shl','shr','abstract','final','eachin','exit','continue','strict','superstrict','private','public','protected','var','ptr'];
                 const noParenCallRegex = /\b(\w+)\s+(\w+)/g;
                 while ((match = noParenCallRegex.exec(node.content)) !== null) {
                     const name = match[1];
@@ -763,7 +854,9 @@
                     // Skip if it's a variable declaration (name:Type pattern)
                     if (node.content.substring(match.index).match(/^\w+\s+\w+\s*:/)) continue;
                     
-                    const target = nodeMap[name];
+                    // Case-insensitive lookup
+                    const targetKey = Object.keys(nodeMap).find(k => k.toLowerCase() === name.toLowerCase());
+                    const target = targetKey ? nodeMap[targetKey] : null;
                     if (target && target.id !== node.id && target.nodeType !== 'global' && (target.nodeType === 'function' || target.nodeType === 'method' || target.nodeType === 'staticfunc')) {
                         if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
                             state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
@@ -774,9 +867,10 @@
                 // Method calls: obj.Method()
                 const methodRegex = /(\w+)\.(\w+)\s*\(/g;
                 while ((match = methodRegex.exec(node.content)) !== null) {
-                    const methodName = match[2];
+                    const methodName = match[2].toLowerCase();
                     for (const [key, target] of Object.entries(nodeMap)) {
-                        if ((key === `${match[1]}.${methodName}` || key.endsWith('.' + methodName)) && target.id !== node.id) {
+                        const keyLower = key.toLowerCase();
+                        if ((keyLower === `${match[1].toLowerCase()}.${methodName}` || keyLower.endsWith('.' + methodName)) && target.id !== node.id) {
                             if (!state.connections.some(c => c.from === node.id && c.to === target.id && c.type === 'calls')) {
                                 state.connections.push({ id: state.nextConnId++, from: node.id, to: target.id, fromAnchor: 'bottom', toAnchor: 'top', type: 'calls' });
                             }
@@ -795,6 +889,303 @@
             document.getElementById('globalCount').textContent = state.nodes.filter(n => n.nodeType === 'global').length;
             document.getElementById('linkCount').textContent = state.connections.length;
             document.getElementById('zoomLevel').textContent = Math.round(state.camera.zoom * 100) + '%';
+        }
+
+        // ============================================
+        // ADVANCED ANALYSIS
+        // ============================================
+        function runAdvancedAnalysis() {
+            state.analysis.cycles = detectCycles();
+            state.analysis.recursive = detectRecursive();
+            state.analysis.orphans = detectOrphans();
+            state.analysis.complexity = calculateComplexity();
+            updateAnalysisPanel();
+        }
+
+        // Detect call cycles (A→B→C→A)
+        function detectCycles() {
+            const cycles = [];
+            const callGraph = buildCallGraph();
+            const visited = new Set();
+            const recStack = new Set();
+            const path = [];
+
+            function dfs(nodeId) {
+                visited.add(nodeId);
+                recStack.add(nodeId);
+                path.push(nodeId);
+
+                const neighbors = callGraph.get(nodeId) || [];
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor)) {
+                        const cycle = dfs(neighbor);
+                        if (cycle) return cycle;
+                    } else if (recStack.has(neighbor)) {
+                        // Found cycle
+                        const cycleStart = path.indexOf(neighbor);
+                        const cyclePath = path.slice(cycleStart);
+                        cyclePath.push(neighbor); // Complete the cycle
+                        return cyclePath;
+                    }
+                }
+
+                path.pop();
+                recStack.delete(nodeId);
+                return null;
+            }
+
+            for (const node of state.nodes) {
+                if (!visited.has(node.id) && (node.nodeType === 'function' || node.nodeType === 'method' || node.nodeType === 'staticfunc')) {
+                    visited.clear();
+                    recStack.clear();
+                    path.length = 0;
+                    const cycle = dfs(node.id);
+                    if (cycle && cycle.length > 2) {
+                        // Check if this cycle is already detected (avoid duplicates)
+                        const cycleKey = [...cycle].sort().join('-');
+                        if (!cycles.some(c => [...c.nodes].sort().join('-') === cycleKey)) {
+                            cycles.push({
+                                nodes: cycle,
+                                names: cycle.map(id => {
+                                    const n = state.nodes.find(x => x.id === id);
+                                    return n ? extractName(n.label) : 'Unknown';
+                                })
+                            });
+                        }
+                    }
+                }
+            }
+            return cycles;
+        }
+
+        // Detect recursive calls (self-calling functions)
+        function detectRecursive() {
+            const recursive = [];
+            for (const node of state.nodes) {
+                if (node.nodeType === 'function' || node.nodeType === 'method' || node.nodeType === 'staticfunc') {
+                    const name = extractName(node.label);
+                    if (node.content) {
+                        // Check if function calls itself
+                        const selfCallRegex = new RegExp(`\\b${name}\\s*\\(`, 'gi');
+                        if (selfCallRegex.test(node.content)) {
+                            recursive.push({
+                                id: node.id,
+                                name: name,
+                                label: node.label
+                            });
+                        }
+                    }
+                }
+            }
+            return recursive;
+        }
+
+        // Detect orphan functions (never called)
+        function detectOrphans() {
+            const orphans = [];
+            const calledNodes = new Set();
+            
+            // Build set of all called node IDs
+            for (const conn of state.connections) {
+                if (conn.type === 'calls') {
+                    calledNodes.add(conn.to);
+                }
+            }
+
+            for (const node of state.nodes) {
+                if (node.nodeType === 'function' || node.nodeType === 'method' || node.nodeType === 'staticfunc') {
+                    const name = extractName(node.label);
+                    // Skip constructors (New), destructors (Delete), and common entry points
+                    if (['New', 'Delete', 'Main', 'Update', 'Render', 'Draw', 'Init', 'Create', 'Destroy', 'OnCreate', 'OnUpdate', 'OnRender'].includes(name)) {
+                        continue;
+                    }
+                    if (!calledNodes.has(node.id)) {
+                        orphans.push({
+                            id: node.id,
+                            name: name,
+                            label: node.label
+                        });
+                    }
+                }
+            }
+            return orphans;
+        }
+
+        // Calculate complexity for each function/method
+        function calculateComplexity() {
+            const complexities = [];
+            
+            for (const node of state.nodes) {
+                if (node.nodeType === 'function' || node.nodeType === 'method' || node.nodeType === 'staticfunc') {
+                    const content = node.content || '';
+                    const lines = content.split('\n').filter(l => l.trim()).length;
+                    
+                    // Count outgoing calls
+                    const outgoingCalls = state.connections.filter(c => c.from === node.id && c.type === 'calls').length;
+                    
+                    // Count incoming calls
+                    const incomingCalls = state.connections.filter(c => c.to === node.id && c.type === 'calls').length;
+                    
+                    // Count control structures (If, For, While, Select, etc.)
+                    const controlStructures = (content.match(/\b(If|For|While|Repeat|Select|Try)\b/gi) || []).length;
+                    
+                    // Calculate complexity score
+                    // Formula: lines + (control structures * 2) + outgoing calls
+                    const score = lines + (controlStructures * 2) + outgoingCalls;
+                    
+                    complexities.push({
+                        id: node.id,
+                        name: extractName(node.label),
+                        label: node.label,
+                        lines: lines,
+                        outgoing: outgoingCalls,
+                        incoming: incomingCalls,
+                        controls: controlStructures,
+                        score: score
+                    });
+                }
+            }
+            
+            // Sort by complexity score descending
+            complexities.sort((a, b) => b.score - a.score);
+            return complexities.slice(0, 10); // Top 10
+        }
+
+        // Build call graph for cycle detection
+        function buildCallGraph() {
+            const graph = new Map();
+            for (const conn of state.connections) {
+                if (conn.type === 'calls') {
+                    if (!graph.has(conn.from)) graph.set(conn.from, []);
+                    graph.get(conn.from).push(conn.to);
+                }
+            }
+            return graph;
+        }
+
+        // Extract function/method name from label
+        function extractName(label) {
+            const match = label.match(/(?:Function|Method)\s+(\w+)/i);
+            return match ? match[1] : label.split(' ').pop().split('(')[0];
+        }
+
+        // Update analysis panel UI
+        function updateAnalysisPanel() {
+            // Cycles
+            const cyclesList = document.getElementById('cyclesList');
+            document.getElementById('cycleCount').textContent = state.analysis.cycles.length;
+            if (state.analysis.cycles.length === 0) {
+                cyclesList.innerHTML = '<div class="analysis-empty">No cycles detected ✓</div>';
+            } else {
+                cyclesList.innerHTML = state.analysis.cycles.map((c, i) => 
+                    `<div class="analysis-item cycle" onclick="focusOnCycle(${i})">
+                        <strong>Cycle ${i + 1}:</strong> ${c.names.join(' → ')}
+                    </div>`
+                ).join('');
+            }
+
+            // Recursive
+            const recursiveList = document.getElementById('recursiveList');
+            document.getElementById('recursiveCount').textContent = state.analysis.recursive.length;
+            if (state.analysis.recursive.length === 0) {
+                recursiveList.innerHTML = '<div class="analysis-empty">No recursive functions</div>';
+            } else {
+                recursiveList.innerHTML = state.analysis.recursive.map(r => 
+                    `<div class="analysis-item recursive" onclick="focusOnNode(${r.id})">
+                        ♻️ <strong>${r.name}</strong> calls itself
+                    </div>`
+                ).join('');
+            }
+
+            // Orphans
+            const orphanList = document.getElementById('orphanList');
+            document.getElementById('orphanCount').textContent = state.analysis.orphans.length;
+            if (state.analysis.orphans.length === 0) {
+                orphanList.innerHTML = '<div class="analysis-empty">All functions are used ✓</div>';
+            } else {
+                orphanList.innerHTML = state.analysis.orphans.map(o => 
+                    `<div class="analysis-item orphan" onclick="focusOnNode(${o.id})">
+                        👻 <strong>${o.name}</strong> never called
+                    </div>`
+                ).join('');
+            }
+
+            // Complexity
+            const complexityList = document.getElementById('complexityList');
+            document.getElementById('complexCount').textContent = state.analysis.complexity.length;
+            const maxScore = state.analysis.complexity.length > 0 ? state.analysis.complexity[0].score : 1;
+            if (state.analysis.complexity.length === 0) {
+                complexityList.innerHTML = '<div class="analysis-empty">No functions to analyze</div>';
+            } else {
+                complexityList.innerHTML = state.analysis.complexity.map(c => {
+                    const percent = Math.round((c.score / maxScore) * 100);
+                    const color = percent > 70 ? '#ff4444' : percent > 40 ? '#ffaa00' : '#66ff66';
+                    return `<div class="analysis-item complex" onclick="focusOnNode(${c.id})">
+                        <div><strong>${c.name}</strong> <span style="color:#888">(score: ${c.score})</span></div>
+                        <div style="font-size:9px;color:#666">📏 ${c.lines} lines | 📤 ${c.outgoing} out | 📥 ${c.incoming} in | 🔀 ${c.controls} branches</div>
+                        <div class="complexity-bar"><div class="complexity-fill" style="width:${percent}%;background:${color}"></div></div>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        // Focus camera on a specific node
+        function focusOnNode(nodeId) {
+            const node = state.nodes.find(n => n.id === nodeId);
+            if (!node) return;
+            
+            state.selectedNode = nodeId;
+            state.camera.zoom = 1;
+            state.camera.x = -node.x * state.camera.zoom + state.canvasWidth / 2 - (node.width * state.camera.zoom) / 2;
+            state.camera.y = -node.y * state.camera.zoom + state.canvasHeight / 2 - (node.height * state.camera.zoom) / 2;
+        }
+
+        // Focus on cycle - show all nodes in cycle
+        function focusOnCycle(cycleIndex) {
+            const cycle = state.analysis.cycles[cycleIndex];
+            if (!cycle) return;
+            
+            // Find bounding box of all nodes in cycle
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const nodeId of cycle.nodes) {
+                const node = state.nodes.find(n => n.id === nodeId);
+                if (node) {
+                    minX = Math.min(minX, node.x);
+                    minY = Math.min(minY, node.y);
+                    maxX = Math.max(maxX, node.x + node.width);
+                    maxY = Math.max(maxY, node.y + node.height);
+                }
+            }
+            
+            const pad = 100;
+            const cw = maxX - minX + pad * 2;
+            const ch = maxY - minY + pad * 2;
+            state.camera.zoom = Math.min(state.canvasWidth / cw, state.canvasHeight / ch, 1.5);
+            state.camera.x = -minX * state.camera.zoom + (state.canvasWidth - (maxX - minX) * state.camera.zoom) / 2;
+            state.camera.y = -minY * state.camera.zoom + (state.canvasHeight - (maxY - minY) * state.camera.zoom) / 2;
+            
+            // Select first node in cycle
+            state.selectedNode = cycle.nodes[0];
+        }
+
+        // Check if node is in a cycle
+        function isNodeInCycle(nodeId) {
+            return state.analysis.cycles.some(c => c.nodes.includes(nodeId));
+        }
+
+        // Check if node is recursive
+        function isNodeRecursive(nodeId) {
+            return state.analysis.recursive.some(r => r.id === nodeId);
+        }
+
+        // Check if node is orphan
+        function isNodeOrphan(nodeId) {
+            return state.analysis.orphans.some(o => o.id === nodeId);
+        }
+
+        // Get node complexity data
+        function getNodeComplexity(nodeId) {
+            return state.analysis.complexity.find(c => c.id === nodeId);
         }
 
         // ============================================
@@ -1019,6 +1410,68 @@
                     ctx.fillRect(cx - cs/2, cy - cs/2, cs, cs);
                 });
                 ctx.restore();
+            }
+
+            // Analysis indicators (badges)
+            if (state.analysis.showAnalysis) {
+                const badges = [];
+                const badgeSize = 18 * state.camera.zoom;
+                const badgeGap = 4 * state.camera.zoom;
+                
+                if (isNodeInCycle(node.id)) {
+                    badges.push({ icon: '🔄', color: '#ff4444', glow: '#ff0000' });
+                }
+                if (isNodeRecursive(node.id)) {
+                    badges.push({ icon: '♻️', color: '#ff9933', glow: '#ff6600' });
+                }
+                if (isNodeOrphan(node.id)) {
+                    badges.push({ icon: '👻', color: '#888888', glow: '#666666' });
+                }
+                
+                // Draw badges in top-right corner
+                badges.forEach((badge, i) => {
+                    const bx = scr.x + w - badgeSize - 4 * state.camera.zoom - i * (badgeSize + badgeGap);
+                    const by = scr.y + 4 * state.camera.zoom;
+                    
+                    // Badge glow
+                    ctx.save();
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = badge.glow;
+                    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                    ctx.beginPath();
+                    ctx.arc(bx + badgeSize/2, by + badgeSize/2, badgeSize/2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    
+                    // Badge icon
+                    ctx.save();
+                    ctx.font = `${badgeSize * 0.7}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(badge.icon, bx + badgeSize/2, by + badgeSize/2);
+                    ctx.restore();
+                });
+                
+                // Complexity indicator (small bar at bottom of node)
+                const complexity = getNodeComplexity(node.id);
+                if (complexity && state.analysis.complexity.length > 0) {
+                    const maxScore = state.analysis.complexity[0].score;
+                    const percent = complexity.score / maxScore;
+                    const barHeight = 3 * state.camera.zoom;
+                    const barWidth = (w - 8 * state.camera.zoom) * percent;
+                    const barColor = percent > 0.7 ? '#ff4444' : percent > 0.4 ? '#ffaa00' : '#66ff66';
+                    
+                    ctx.save();
+                    // Bar background
+                    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                    ctx.fillRect(scr.x + 4 * state.camera.zoom, scr.y + h - barHeight - 2 * state.camera.zoom, w - 8 * state.camera.zoom, barHeight);
+                    // Bar fill
+                    ctx.fillStyle = barColor;
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = barColor;
+                    ctx.fillRect(scr.x + 4 * state.camera.zoom, scr.y + h - barHeight - 2 * state.camera.zoom, barWidth, barHeight);
+                    ctx.restore();
+                }
             }
 
             // Title text
@@ -1297,10 +1750,32 @@
             state.camera.y = -minY * state.camera.zoom + (state.canvasHeight - (maxY - minY) * state.camera.zoom) / 2;
         });
 
-        document.getElementById('btnClear').addEventListener('click', () => { if (confirm('Clear everything?')) { state.nodes = []; state.connections = []; state.selectedNode = null; } });
+        document.getElementById('btnClear').addEventListener('click', () => { if (confirm('Clear everything?')) { state.nodes = []; state.connections = []; state.selectedNode = null; state.analysis = { cycles: [], recursive: [], orphans: [], complexity: [], showAnalysis: false }; } });
+
+        // Analysis button
+        document.getElementById('btnAnalysis').addEventListener('click', () => {
+            const panel = document.getElementById('analysisPanel');
+            const btn = document.getElementById('btnAnalysis');
+            state.analysis.showAnalysis = !state.analysis.showAnalysis;
+            
+            if (state.analysis.showAnalysis) {
+                runAdvancedAnalysis();
+                panel.classList.add('visible');
+                btn.classList.add('active');
+            } else {
+                panel.classList.remove('visible');
+                btn.classList.remove('active');
+            }
+        });
+
+        document.getElementById('analysisClose').addEventListener('click', () => {
+            document.getElementById('analysisPanel').classList.remove('visible');
+            document.getElementById('btnAnalysis').classList.remove('active');
+            state.analysis.showAnalysis = false;
+        });
 
         document.getElementById('btnExport').addEventListener('click', () => {
-            const data = { nodes: state.nodes, connections: state.connections, version: '8.0' };
+            const data = { nodes: state.nodes, connections: state.connections, version: '8.3' };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -1320,6 +1795,10 @@
                     state.connections = data.connections || [];
                     state.nextNodeId = Math.max(...state.nodes.map(n => n.id), 0) + 1;
                     state.nextConnId = Math.max(...state.connections.map(c => c.id), 0) + 1;
+                    // Re-run analysis if panel is open
+                    if (state.analysis.showAnalysis) {
+                        setTimeout(() => runAdvancedAnalysis(), 150);
+                    }
                 } catch (err) { alert('Loading error'); }
             };
             reader.readAsText(file);
@@ -1339,6 +1818,12 @@
             const parsed = parseBlitzMaxCode(code);
             console.log('Parsed:', parsed);
             generateNodesFromParsed(parsed);
+            
+            // Re-run analysis if panel is open
+            if (state.analysis.showAnalysis) {
+                setTimeout(() => runAdvancedAnalysis(), 150);
+            }
+            
             setTimeout(() => document.getElementById('btnFit').click(), 100);
         });
 
