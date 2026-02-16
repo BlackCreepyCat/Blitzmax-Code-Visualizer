@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlitzMax NG - Code Visualizer v9.0</title>
+    <title>BlitzMax NG - Code Visualizer v10.1</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -293,6 +293,20 @@
                         <div>
                             <div class="label">Compact Grid</div>
                             <div class="desc">Minimize space usage</div>
+                        </div>
+                    </div>
+                    <div class="layout-option" data-layout="radial">
+                        <span class="icon">🎯</span>
+                        <div>
+                            <div class="label">Radial</div>
+                            <div class="desc">Centered on Main node</div>
+                        </div>
+                    </div>
+                    <div class="layout-option" data-layout="dag">
+                        <span class="icon">🌳</span>
+                        <div>
+                            <div class="label">DAG (Sugiyama)</div>
+                            <div class="desc">Directed Acyclic Graph</div>
                         </div>
                     </div>
                 </div>
@@ -1363,6 +1377,12 @@
                 case 'grid':
                     layoutCompactGrid();
                     break;
+                case 'radial':
+                    layoutRadial();
+                    break;
+                case 'dag':
+                    layoutDAG();
+                    break;
             }
             
             // Fit view after layout
@@ -1531,6 +1551,9 @@
                 });
             }
             
+            // POST-SIMULATION: Overlap prevention phase
+            resolveOverlaps();
+            
             // Normalize positions (move to positive coordinates)
             let minX = Infinity, minY = Infinity;
             state.nodes.forEach(n => {
@@ -1634,6 +1657,285 @@
                     node.x = START_X;
                     node.y = newY;
                 }
+            });
+        }
+
+        // Helper function to resolve node overlaps (for force-directed layout)
+        function resolveOverlaps() {
+            const padding = 20;
+            const maxIterations = 50;
+            
+            for (let iter = 0; iter < maxIterations; iter++) {
+                let hasOverlap = false;
+                
+                for (let i = 0; i < state.nodes.length; i++) {
+                    for (let j = i + 1; j < state.nodes.length; j++) {
+                        const nodeA = state.nodes[i];
+                        const nodeB = state.nodes[j];
+                        
+                        // Check for overlap
+                        const overlapX = (nodeA.x < nodeB.x + nodeB.width + padding) && 
+                                       (nodeA.x + nodeA.width + padding > nodeB.x);
+                        const overlapY = (nodeA.y < nodeB.y + nodeB.height + padding) && 
+                                       (nodeA.y + nodeA.height + padding > nodeB.y);
+                        
+                        if (overlapX && overlapY) {
+                            hasOverlap = true;
+                            
+                            // Calculate overlap distances
+                            const centerAX = nodeA.x + nodeA.width / 2;
+                            const centerAY = nodeA.y + nodeA.height / 2;
+                            const centerBX = nodeB.x + nodeB.width / 2;
+                            const centerBY = nodeB.y + nodeB.height / 2;
+                            
+                            const dx = centerBX - centerAX;
+                            const dy = centerBY - centerAY;
+                            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                            
+                            // Minimum distance to maintain
+                            const minDist = (nodeA.width + nodeB.width) / 2 + 
+                                          (nodeA.height + nodeB.height) / 2 + padding;
+                            
+                            if (dist < minDist) {
+                                // Push nodes apart
+                                const pushForce = (minDist - dist) / 2;
+                                const pushX = (dx / dist) * pushForce;
+                                const pushY = (dy / dist) * pushForce;
+                                
+                                nodeA.x -= pushX;
+                                nodeA.y -= pushY;
+                                nodeB.x += pushX;
+                                nodeB.y += pushY;
+                            }
+                        }
+                    }
+                }
+                
+                // If no overlaps detected, we're done
+                if (!hasOverlap) break;
+            }
+        }
+
+        // Layout 5: Radial - Centered on Main node
+        function layoutRadial() {
+            // Find the main node
+            let mainNode = state.nodes.find(n => n.nodeType === 'main');
+            if (!mainNode) {
+                // Fallback: use first node
+                if (state.nodes.length === 0) return;
+                mainNode = state.nodes[0];
+            }
+            
+            // Place main node at center
+            const centerX = 800;
+            const centerY = 600;
+            mainNode.x = centerX - mainNode.width / 2;
+            mainNode.y = centerY - mainNode.height / 2;
+            
+            // Build dependency levels from main
+            const levels = new Map(); // nodeId -> level
+            const visited = new Set();
+            levels.set(mainNode.id, 0);
+            
+            // BFS to assign levels
+            const queue = [mainNode.id];
+            visited.add(mainNode.id);
+            
+            while (queue.length > 0) {
+                const currentId = queue.shift();
+                const currentLevel = levels.get(currentId);
+                
+                // Find all nodes connected to current
+                const connections = state.connections.filter(c => 
+                    c.from === currentId && (c.type === 'calls' || c.type === 'uses' || c.type === 'contains')
+                );
+                
+                for (const conn of connections) {
+                    if (!visited.has(conn.to)) {
+                        visited.add(conn.to);
+                        levels.set(conn.to, currentLevel + 1);
+                        queue.push(conn.to);
+                    }
+                }
+            }
+            
+            // Handle unconnected nodes
+            state.nodes.forEach(node => {
+                if (!levels.has(node.id)) {
+                    levels.set(node.id, 3); // Place at outer ring
+                }
+            });
+            
+            // Group nodes by level
+            const nodesByLevel = new Map();
+            for (const [nodeId, level] of levels) {
+                if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
+                nodesByLevel.get(level).push(state.nodes.find(n => n.id === nodeId));
+            }
+            
+            // Position nodes in concentric circles
+            const radiusStep = 250;
+            for (const [level, nodes] of nodesByLevel) {
+                if (level === 0) continue; // Skip main node (already placed)
+                
+                const radius = level * radiusStep;
+                const angleStep = (Math.PI * 2) / nodes.length;
+                
+                nodes.forEach((node, idx) => {
+                    const angle = idx * angleStep;
+                    node.x = centerX + Math.cos(angle) * radius - node.width / 2;
+                    node.y = centerY + Math.sin(angle) * radius - node.height / 2;
+                });
+            }
+        }
+
+        // Layout 6: DAG (Directed Acyclic Graph) using Sugiyama algorithm
+        function layoutDAG() {
+            // Step 1: Assign layers (longest path layering)
+            const layers = assignLayers();
+            
+            // Step 2: Minimize crossings (barycenter heuristic)
+            minimizeCrossings(layers);
+            
+            // Step 3: Assign X coordinates
+            assignXCoordinates(layers);
+        }
+
+        function assignLayers() {
+            const layers = [];
+            const layerMap = new Map(); // nodeId -> layer index
+            
+            // Find root nodes (no incoming edges)
+            const hasIncoming = new Set();
+            state.connections.forEach(c => {
+                if (c.type !== 'contains') hasIncoming.add(c.to);
+            });
+            
+            const roots = state.nodes.filter(n => !hasIncoming.has(n.id));
+            if (roots.length === 0) {
+                // No clear roots, use main or first node
+                const mainNode = state.nodes.find(n => n.nodeType === 'main') || state.nodes[0];
+                if (mainNode) roots.push(mainNode);
+            }
+            
+            // BFS to assign layers
+            const visited = new Set();
+            const queue = roots.map(n => ({ node: n, layer: 0 }));
+            
+            roots.forEach(n => {
+                visited.add(n.id);
+                layerMap.set(n.id, 0);
+            });
+            
+            while (queue.length > 0) {
+                const { node, layer } = queue.shift();
+                
+                // Ensure layer exists
+                while (layers.length <= layer) layers.push([]);
+                if (!layers[layer].includes(node)) layers[layer].push(node);
+                
+                // Find children
+                const children = state.connections
+                    .filter(c => c.from === node.id && c.type !== 'contains')
+                    .map(c => state.nodes.find(n => n.id === c.to))
+                    .filter(n => n);
+                
+                for (const child of children) {
+                    const existingLayer = layerMap.get(child.id);
+                    const newLayer = layer + 1;
+                    
+                    if (existingLayer === undefined) {
+                        visited.add(child.id);
+                        layerMap.set(child.id, newLayer);
+                        queue.push({ node: child, layer: newLayer });
+                    } else if (newLayer > existingLayer) {
+                        // Move to deeper layer
+                        const oldLayer = layers[existingLayer];
+                        layers[existingLayer] = oldLayer.filter(n => n.id !== child.id);
+                        layerMap.set(child.id, newLayer);
+                        while (layers.length <= newLayer) layers.push([]);
+                        layers[newLayer].push(child);
+                    }
+                }
+            }
+            
+            // Handle disconnected nodes
+            state.nodes.forEach(node => {
+                if (!visited.has(node.id)) {
+                    const lastLayer = layers.length > 0 ? layers.length - 1 : 0;
+                    while (layers.length <= lastLayer) layers.push([]);
+                    layers[lastLayer].push(node);
+                    layerMap.set(node.id, lastLayer);
+                }
+            });
+            
+            return layers;
+        }
+
+        function minimizeCrossings(layers) {
+            const maxIterations = 10;
+            
+            for (let iter = 0; iter < maxIterations; iter++) {
+                // Forward pass
+                for (let i = 1; i < layers.length; i++) {
+                    orderLayerByBarycenter(layers, i, true);
+                }
+                
+                // Backward pass
+                for (let i = layers.length - 2; i >= 0; i--) {
+                    orderLayerByBarycenter(layers, i, false);
+                }
+            }
+        }
+
+        function orderLayerByBarycenter(layers, layerIndex, useParents) {
+            const layer = layers[layerIndex];
+            const referenceLayer = useParents ? layers[layerIndex - 1] : layers[layerIndex + 1];
+            if (!referenceLayer) return;
+            
+            const barycenters = layer.map(node => {
+                const connections = state.connections.filter(c => 
+                    (useParents && c.to === node.id) || (!useParents && c.from === node.id)
+                );
+                
+                if (connections.length === 0) return 0;
+                
+                let sum = 0;
+                for (const conn of connections) {
+                    const refNodeId = useParents ? conn.from : conn.to;
+                    const refIndex = referenceLayer.findIndex(n => n.id === refNodeId);
+                    if (refIndex !== -1) sum += refIndex;
+                }
+                
+                return sum / connections.length;
+            });
+            
+            // Sort layer by barycenter values
+            const indexed = layer.map((node, i) => ({ node, barycenter: barycenters[i] }));
+            indexed.sort((a, b) => a.barycenter - b.barycenter);
+            layers[layerIndex] = indexed.map(item => item.node);
+        }
+
+        function assignXCoordinates(layers) {
+            const layerGap = 300;
+            const nodeGap = 100;
+            const startX = 100;
+            const startY = 100;
+            
+            layers.forEach((layer, layerIdx) => {
+                const y = startY + layerIdx * layerGap;
+                
+                // Calculate total width needed for this layer
+                const totalWidth = layer.reduce((sum, node) => sum + node.width, 0) + 
+                                 (layer.length - 1) * nodeGap;
+                
+                let x = startX + Math.max(0, (2000 - totalWidth) / 2); // Center the layer
+                
+                layer.forEach(node => {
+                    node.x = x;
+                    node.y = y;
+                    x += node.width + nodeGap;
+                });
             });
         }
 
@@ -1904,6 +2206,31 @@
             }
         }
 
+        // Helper function for word wrapping text
+        function wrapText(ctx, text, maxWidth) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+            
+            for (const word of words) {
+                const testLine = currentLine ? currentLine + ' ' + word : word;
+                const metrics = ctx.measureText(testLine);
+                
+                if (metrics.width > maxWidth && currentLine !== '') {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            
+            return lines;
+        }
+
         function drawNode(node) {
             const scr = worldToScreen(node.x, node.y);
             const w = node.width * state.camera.zoom;
@@ -2034,81 +2361,80 @@
             ctx.fillText(title, scr.x + 10, scr.y + titleH / 2);
             ctx.restore();
 
-			// Content
+			// Content with word wrap
 			if (node.content) {
 				ctx.save();
 				const fs = Math.max(10 * state.camera.zoom, 8);
 				ctx.font = `${fs}px Consolas, monospace`;
 				ctx.textAlign = 'left';
 				ctx.textBaseline = 'top';
-				const lines = node.content.split('\n');
 				const lineH = state.LINE_HEIGHT * state.camera.zoom;
 				const startY = scr.y + titleH + 8 * state.camera.zoom;
+				const contentMaxW = w - 16 * state.camera.zoom;
 				const maxLines = Math.floor((h - titleH - 16 * state.camera.zoom) / lineH);
-				const contentMaxW = w - 16;
 
-				// Liste des keywords BlitzMax NG (ajoutez-en si besoin, case-insensitive)
+				// BlitzMax keywords for syntax highlighting
 				const keywords = ['Function', 'Method', 'Type', 'End', 'If', 'Then', 'Else', 'ElseIf', 'EndIf', 'For', 'To', 'Step', 'Next', 'While', 'Wend', 'Repeat', 'Until', 'Forever', 'Select', 'Case', 'Default', 'EndSelect', 'Return', 'Local', 'Global', 'Const', 'Field', 'New', 'Null', 'Self', 'Super', 'And', 'Or', 'Not', 'Mod', 'Shl', 'Shr', 'Abstract', 'Final', 'EachIn', 'Exit', 'Continue', 'Strict', 'SuperStrict', 'Private', 'Public', 'Protected', 'Var', 'Ptr'];
-				const keywordRegex = new RegExp(`\\b(${keywords.join('|')})\\b`, 'gi');  // Global, case-insensitive
-
-				lines.slice(0, maxLines).forEach((line, i) => {
-					let currentX = scr.x + 8;
-					let remainingLine = line;
-					let match;
-
-					// Couleur par défaut pour la ligne (gardez la logique existante pour surcharger par type de ligne)
-					let defaultColor = '#ccc';
-					if (line.match(/^Const\s/i)) defaultColor = '#00d4ff';
-					else if (line.match(/^Global\s/i)) defaultColor = '#ff9933';
-					else if (line.match(/^Local\s/i)) defaultColor = '#66ff66';
-					else if (line.match(/^Field\s/i)) defaultColor = '#b366ff';
-					else if (line.match(/^(Return|If|For|While|Select|Repeat)\b/i)) defaultColor = '#ff9933';
-
-					while ((match = keywordRegex.exec(remainingLine)) !== null) {
-						const before = remainingLine.substring(0, match.index);
-						const keyword = match[0];
-
-						// Dessiner le texte avant le keyword
-						if (before) {
-							ctx.fillStyle = defaultColor;
-							let displayBefore = before;
-							const beforeWidth = ctx.measureText(displayBefore).width;
-							if (currentX + beforeWidth > scr.x + contentMaxW) {
-								displayBefore = displayBefore.slice(0, -1);  // Tronquer si trop long
+				
+				// First, split content into lines, then wrap each line
+				const originalLines = node.content.split('\n');
+				const wrappedLines = [];
+				
+				for (const line of originalLines) {
+					const wrapped = wrapText(ctx, line, contentMaxW);
+					wrappedLines.push(...wrapped);
+				}
+				
+				// Render wrapped lines with syntax highlighting
+				const linesToDisplay = wrappedLines.slice(0, maxLines);
+				
+				linesToDisplay.forEach((line, i) => {
+					let currentX = scr.x + 8 * state.camera.zoom;
+					const currentY = startY + i * lineH;
+					
+					// Split line into tokens (words and spaces)
+					const tokens = line.split(/(\s+)/);
+					
+					for (const token of tokens) {
+						if (!token) continue;
+						
+						// Check if token is a keyword
+						let isKeyword = false;
+						for (const kw of keywords) {
+							if (token.toLowerCase() === kw.toLowerCase()) {
+								isKeyword = true;
+								break;
 							}
-							ctx.fillText(displayBefore, currentX, startY + i * lineH);
-							currentX += ctx.measureText(displayBefore).width;
 						}
-
-						// Dessiner le keyword en violet (ou autre couleur, ex. #b366ff pour purple)
-						ctx.fillStyle = '#b366ff';  // Couleur pour keywords
-						let displayKeyword = keyword;
-						const keywordWidth = ctx.measureText(displayKeyword).width;
-						if (currentX + keywordWidth > scr.x + contentMaxW) {
-							displayKeyword = displayKeyword.slice(0, -1);
+						
+						// Determine color
+						let color = '#ccc';
+						if (isKeyword) {
+							color = '#b366ff'; // Keywords in purple
+						} else if (/^\d+/.test(token)) {
+							color = '#ff9933'; // Numbers in orange
+						} else if (token.includes('"') || token.includes("'")) {
+							color = '#66ff66'; // Strings in green
 						}
-						ctx.fillText(displayKeyword, currentX, startY + i * lineH);
-						currentX += keywordWidth;
-
-						// Continuer avec le reste
-						remainingLine = remainingLine.substring(match.index + keyword.length);
-					}
-
-					// Dessiner le reste de la ligne
-					if (remainingLine) {
-						ctx.fillStyle = defaultColor;
-						let displayRemaining = remainingLine;
-						const remainingWidth = ctx.measureText(displayRemaining).width;
-						if (currentX + remainingWidth > scr.x + contentMaxW) {
-							displayRemaining = displayRemaining.slice(0, -1) + '…';
+						
+						// Draw token
+						ctx.fillStyle = color;
+						const tokenWidth = ctx.measureText(token).width;
+						
+						// Only draw if it fits
+						if (currentX + tokenWidth <= scr.x + w - 8 * state.camera.zoom) {
+							ctx.fillText(token, currentX, currentY);
+							currentX += tokenWidth;
 						}
-						ctx.fillText(displayRemaining, currentX, startY + i * lineH);
 					}
 				});
-				if (lines.length > maxLines) {
+				
+				// Show indicator if there are more lines
+				if (wrappedLines.length > maxLines) {
 					ctx.fillStyle = '#666';
-					ctx.fillText(`... (+${lines.length - maxLines})`, scr.x + 8, startY + maxLines * lineH);
+					ctx.fillText(`... (+${wrappedLines.length - maxLines} lines)`, scr.x + 8 * state.camera.zoom, startY + maxLines * lineH);
 				}
+				
 				ctx.restore();
 			}
         }
@@ -2398,7 +2724,7 @@
         });
 
         document.getElementById('btnExport').addEventListener('click', () => {
-            const data = { nodes: state.nodes, connections: state.connections, version: '9.0' };
+            const data = { nodes: state.nodes, connections: state.connections, version: '10.1' };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -2418,10 +2744,20 @@
                     state.connections = data.connections || [];
                     state.nextNodeId = Math.max(...state.nodes.map(n => n.id), 0) + 1;
                     state.nextConnId = Math.max(...state.connections.map(c => c.id), 0) + 1;
+                    
+                    // Apply radial layout by default
+                    setTimeout(() => {
+                        if (state.nodes.length > 0) {
+                            layoutRadial();
+                        }
+                    }, 50);
+                    
                     // Re-run analysis if panel is open
                     if (state.analysis.showAnalysis) {
                         setTimeout(() => runAdvancedAnalysis(), 150);
                     }
+                    
+                    setTimeout(() => document.getElementById('btnFit').click(), 200);
                 } catch (err) { alert('Loading error'); }
             };
             reader.readAsText(file);
@@ -2442,12 +2778,19 @@
             console.log('Parsed:', parsed);
             generateNodesFromParsed(parsed);
             
+            // Apply radial layout by default
+            setTimeout(() => {
+                if (state.nodes.length > 0) {
+                    layoutRadial();
+                }
+            }, 50);
+            
             // Re-run analysis if panel is open
             if (state.analysis.showAnalysis) {
                 setTimeout(() => runAdvancedAnalysis(), 150);
             }
             
-            setTimeout(() => document.getElementById('btnFit').click(), 100);
+            setTimeout(() => document.getElementById('btnFit').click(), 200);
         });
 
         // Start
